@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "liboracle", "LibOracle\liboracle.csproj", "{FB45C6E7-5113-4243-948A-9B92D526606C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TemplateIterator", "TemplateIterator\TemplateIterator.csproj", "{E1453291-3829-4A4F-A398-1D9CE2182A06}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FB45C6E7-5113-4243-948A-9B92D526606C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FB45C6E7-5113-4243-948A-9B92D526606C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FB45C6E7-5113-4243-948A-9B92D526606C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FB45C6E7-5113-4243-948A-9B92D526606C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E1453291-3829-4A4F-A398-1D9CE2182A06}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E1453291-3829-4A4F-A398-1D9CE2182A06}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E1453291-3829-4A4F-A398-1D9CE2182A06}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E1453291-3829-4A4F-A398-1D9CE2182A06}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
