@@ -3,15 +3,16 @@ using System.CodeDom;
 using RWCustom;
 using UnityEngine;
 using Random = UnityEngine.Random;
-#pragma warning disable CS0108, CS0114
 
 namespace LibOracle;
 
-public abstract class OracleWrapper : Oracle {
+public abstract class OracleWrapper : Oracle { // TODO: convert to placed object
     public OracleID WrappedOracle = new("WrappedOracle", true);
-    protected OracleWrapper(AbstractPhysicalObject obj, Room room, bool broken = false) : base(obj, room) {
-        Broken = broken;
-        if (!broken) {
+    public Vector2 Center => new((ArmArea.left + ArmArea.right) / 2f, (ArmArea.bottom + ArmArea.top) / 2f);
+    protected OracleWrapper(PlacedObject pobj, Room room) : base(new AbstractPhysicalObject(room.world, AbstractPhysicalObject.AbstractObjectType.Oracle, null, new WorldCoordinate(room.abstractRoom.index, (int)pobj.pos.x, (int)pobj.pos.y, -1), room.game.GetNewID()), room) {
+        var data = (Data)pobj.data;
+        PObject = pobj;
+        if (!data.Broken) {
             room.AddObject(myScreen = new OracleProjectionScreen(room, null)); // the behavior argument is not used whatsoever. thanks videocult
         }
         Plugin.Logger.LogInfo($"New oracle in {room.abstractRoom.name}");
@@ -19,36 +20,47 @@ public abstract class OracleWrapper : Oracle {
         oracleBehavior = new Behavior(this);
         arm = new Arm(this);
         foreach (var field in GetType().GetFields()) {
-            Plugin.Logger.LogInfo($"Checking field: {field.Name}");
             if (!Attribute.IsDefined(field, typeof(OracleMemoryAttribute))) continue;
+            if (!field.IsStatic) {
+                Plugin.Logger.LogWarning($"Field {field.Name} is not static! Skipping");
+                continue;
+            }
             string id = $"{field.DeclaringType?.Name ?? "UNKNOWN CLASS???"}.{field.Name}";
             Plugin.Logger.LogInfo($"Registering oracle memory: {id}");
             if (Plugin.Memories.TryGetValue(id, out var memory)) {
-                field.SetValue(this, memory);
+                field.SetValue(null, memory);
             } else {
-                Plugin.Memories.Add(id, field.GetValue(this));
+                Plugin.Memories.Add(id, field.GetValue(null));
             }
         }
         ID = WrappedOracle;
-        var pos = new Vector2(350f, 350f);
         for (int index = 0; index < bodyChunks.Length; ++index) {
-            bodyChunks[index] = new BodyChunk(this, index, pos, 6f, 0.5f);
+            bodyChunks[index] = new BodyChunk(this, index, Center, 6f, 0.5f);
         } for (int index = 0; index < bodyChunkConnections.Length; ++index)
             bodyChunkConnections[index] = new BodyChunkConnection(bodyChunks[index], bodyChunks[index + 1], 9f, BodyChunkConnection.Type.Normal, 1f, 0.5f);
-        lastPos = pos;
-        TargetPos = pos;
+        Plugin.Logger.LogDebug(Center);
+        lastPos = Center;
+        TargetPos = Center;
+        foreach (OracleSwarmer oracleSwarmer in mySwarmers) {
+            oracleSwarmer.Destroy();
+        }
         mySwarmers.Clear();
+        State = new(this) {
+            Id = OracleState.ID.Idle
+        };
     }
+
+    private readonly PlacedObject PObject;
+    private IntRect ArmArea => new((int)(PObject.pos.x/20f)*20, (int)(PObject.pos.y/20f)*20, (int)(PObject.pos.x/20f)*20+((Data)PObject.data).ArmArea.x*20, (int)(PObject.pos.y/20f)*20+((Data)PObject.data).ArmArea.y*20);
     public Color SkinColor { get; set; } = new(1f, 1f, 1f);
     public Color RobeColor { get; set; } = new(0.2f, 0.2f, 0.2f);
-    public Color RobeFadeColor { get; set; } = new(0f, 0f, 0f);
-    public Color EyeColor { get; set; } = new(0f, 0f, 0f);
-    public bool Broken { get; set; }
+    public Color RobeFadeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
+    public Color EyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
     public OracleState State { get; set; }
     public Vector2 LookPos { get; set; }
 
-    public virtual void SetUpSwarmers() { }
-    public virtual void SetUpMarbles() { }
+    public new virtual void SetUpSwarmers() { }
+    public new virtual void SetUpMarbles() { }
     public virtual void StateSwitch(OracleState.ID newState) {
         
     }
@@ -59,31 +71,37 @@ public abstract class OracleWrapper : Oracle {
     private Vector2 lastPosHandle;
     private Vector2 nextPosHandle;
     private float pathProgression;
-    private float investigateAngle;
+    public float Angle { get; set; }
     private Vector2 baseIdeal;
     private Behavior behavior;
     public Vector2 TargetPos {
         get => nextPos;
         set {
-            lastPos = currentGetTo;
             nextPos = value;
-            lastPosHandle = Custom.RNV() * (Mathf.Lerp(0.3f, 0.65f, Random.value) * Vector2.Distance(lastPos, nextPos));
-            nextPosHandle = -Custom.DegToVec(investigateAngle) * (Mathf.Lerp(0.3f, 0.65f, Random.value) * Vector2.Distance(lastPos, nextPos));
-            pathProgression = 0.0f;
+            nextPosHandle = -Custom.DegToVec(Angle) * (Mathf.Lerp(0.3f, 0.65f, Random.value) * Vector2.Distance(lastPos, nextPos));
+            if (!Mathf.Approximately(pathProgression, 1f)) {
+                lastPosHandle = Custom.RNV() *
+                                (Mathf.Lerp(0.3f, 0.65f, Random.value) * Vector2.Distance(lastPos, nextPos));
+                lastPos = currentGetTo;
+                pathProgression = 0.0f;
+            }
+            Plugin.Logger.LogDebug($"New pos: {value.x}, {value.y}");
         }
     }
 
     public class Behavior(OracleWrapper o) : OracleBehavior(o) {
-        public override Vector2 BaseGetToPos => ((OracleWrapper)oracle).baseIdeal;
+        private OracleWrapper wrapper => (OracleWrapper)oracle;
+        public override Vector2 BaseGetToPos => wrapper.baseIdeal;
+        public override Vector2 OracleGetToPos => wrapper.currentGetTo;
+        public override Vector2 GetToDir => Custom.DegToVec(wrapper.Angle);
+
+        public override void Update(bool eu) {
+            base.Update(eu);
+        }
     }
     public Player player { get; set; }
-    public override void Update(bool eu) { 
-        // please forgive me for what you are about to witness
-        var ptr = typeof(PhysicalObject).GetMethod(nameof(PhysicalObject.Update))?.MethodHandle.GetFunctionPointer();
-        var pobjUpdate = (Action<bool>)Activator.CreateInstance(typeof(Action<bool>), this, ptr);
-        pobjUpdate(eu);
-        // base.Update() has a lot of implicit behavior that fucks up my work so i can't use it and i hate it and i want to have a friendly talk with videcult about it
-        if (ID == WrappedOracle) return;
+    public override void Update(bool eu) {
+        base.Update(eu);
         player = room.game.AlivePlayers.Count > 0
             ? room.game.FirstAlivePlayer.realizedCreature as Player
             : null;
@@ -96,11 +114,16 @@ public abstract class OracleWrapper : Oracle {
             Vector2 vector2 = new Vector2(Random.value * room.PixelWidth, Random.value * room.PixelHeight);
             if (!(room.GetTile(vector2).Solid || BasePosScore(vector2) + 40.0 >= BasePosScore(baseIdeal))) {
                 baseIdeal = vector2;
-                behavior.consistentBasePosCounter = 0;
+                oracleBehavior.consistentBasePosCounter = 0;
             }
         }
         else
             baseIdeal = nextPos;
+
+        if (State.Movement == OracleState.MovementBehavior.Static && TargetPos != Center) {
+            TargetPos = Center;
+            Angle = 180f;
+        }
         ((Arm)arm).Update();
     }
     protected virtual float BasePosScore(Vector2 tryPos) => Mathf.Abs(Vector2.Distance(nextPos, tryPos) - 200f) + Custom.LerpMap(Vector2.Distance(player.DangerPos, tryPos), 40f, 300f, 800f, 0.0f);
@@ -112,15 +135,21 @@ public abstract class OracleWrapper : Oracle {
         return vector2;
     }
 
+    public class Data(PlacedObject obj) : Pom.Pom.ManagedData(obj, null) {
+        [Pom.Pom.IntVector2Field("armArea", 28, 28, Pom.Pom.IntVector2Field.IntVectorReprType.rect)]
+        public IntVector2 ArmArea;
+        [Pom.Pom.BooleanField("broken", false, displayName: "Broken")]
+        public bool Broken;
+    }
     public class Arm : OracleArm {
         public Arm(OracleWrapper oracle) : base(oracle) {
             baseMoveSoundLoop = new StaticSoundLoop(SoundID.SS_AI_Base_Move_LOOP, oracle.firstChunk.pos, oracle.room, 1f, 1f);
-            cornerPositions[0] = oracle.room.MiddleOfTile(10, 31);
-            cornerPositions[1] = oracle.room.MiddleOfTile(38, 31);
-            cornerPositions[2] = oracle.room.MiddleOfTile(38, 3);
-            cornerPositions[3] = oracle.room.MiddleOfTile(10, 3);
         }
         public new virtual void Update() {
+            cornerPositions[0] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.top);
+            cornerPositions[1] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.top);
+            cornerPositions[2] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.bottom);
+            cornerPositions[3] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.bottom);
             base.Update();
             if (oracle.Consious) {
                 float num = 1f;
@@ -180,6 +209,14 @@ public abstract class OracleWrapper : Oracle {
             }
         }
     }
+    public static void RegisterOracle<TOracle>(string category) where TOracle : OracleWrapper {
+        Plugin.Logger.LogInfo($"Registering new oracle: {typeof(TOracle).Name} in {category}");
+        Pom.Pom.RegisterManagedObject<TOracle, Data, Pom.Pom.ManagedRepresentation>(typeof(TOracle).Name, category);
+    }
+    public static void RegisterOracle<TOracle, TData>(string category) where TOracle : OracleWrapper where TData : Data {
+        Plugin.Logger.LogInfo($"Registering new oracle: {typeof(TOracle).Name} in {category}");
+        Pom.Pom.RegisterManagedObject<TOracle, TData, Pom.Pom.ManagedRepresentation>(typeof(TOracle).Name, category);
+    }
 }
 
 public class OracleState(OracleWrapper owner) {
@@ -193,12 +230,14 @@ public class OracleState(OracleWrapper owner) {
             Owner.StateSwitch(value);
         } 
     }
+
+    public MovementBehavior Movement { get; set; } = MovementBehavior.Static;
     public class ID(string value, bool register) : ExtEnum<ID>(value, register) {
         public static readonly ID Idle = new("Idle", true);
         public static readonly ID Welcome = new("Idle", true);
     }
     public class MovementBehavior(string value, bool register) : ExtEnum<MovementBehavior>(value, register) {
-        public static readonly ID Static = new("Static", true);
+        public static readonly MovementBehavior Static = new("Static", true);
     }
     public OracleWrapper Owner { get; set; } = owner;
     public int SwitchTime { get; set; }
@@ -207,6 +246,5 @@ public class OracleState(OracleWrapper owner) {
     public static bool operator ==(OracleState left, ID right) => left?.Id == right;
     public static bool operator !=(OracleState left, ID right) => !(left == right);
 }
-
 [AttributeUsage(AttributeTargets.Field)]
 public class OracleMemoryAttribute : Attribute;

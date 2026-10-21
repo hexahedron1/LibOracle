@@ -14,12 +14,12 @@ using UnityEngine;
 #pragma warning restore CS0618
 
 namespace LibOracle;
-
+[BepInDependency("rwmodding.coreorg.pom")]
 [BepInPlugin(GUID, Name, Version)]
 sealed class Plugin : BaseUnityPlugin {
     public const string GUID = "hexahedron1.liboracle";
     public const string Name = "LibOracle";
-    public const string Version = "0.0.11";
+    public const string Version = "0.0.31";
     public new static ManualLogSource Logger;
     private static bool IsInit;
 
