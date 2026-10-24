@@ -12,7 +12,7 @@ namespace TemplateIterator;
 sealed class Plugin : BaseUnityPlugin {
     public const string GUID = "templateiterator";
     public const string Name = "Template Iterator";
-    public const string Version = "0.0.4";
+    public const string Version = "0.0.7";
     public new static ManualLogSource Logger;
     private static bool IsInit;
 

@@ -19,7 +19,7 @@ namespace LibOracle;
 sealed class Plugin : BaseUnityPlugin {
     public const string GUID = "hexahedron1.liboracle";
     public const string Name = "LibOracle";
-    public const string Version = "0.1.0";
+    public const string Version = "0.0.50";
     public new static ManualLogSource Logger;
     private static bool IsInit;
 
@@ -39,10 +39,7 @@ sealed class Plugin : BaseUnityPlugin {
 
         if (IsInit) return;
         IsInit = true;
-
-        // Initialize assets, your mod config, and anything that uses RainWorld here
-        Logger.LogDebug("Hello world!");
     }
 
-    internal static Dictionary<string, object> Memories = [];
+    internal static readonly List<string> MemoryFields = [];
 }
