@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using Mono.Cecil;
 using Mono.Cecil.Cil;
 using MonoMod.Cil;
 using Newtonsoft.Json;
@@ -20,6 +21,48 @@ public class Hooks {
         On.OracleGraphics.InitiateSprites += On_OracleGraphics_InitiateSprites;
         On.OracleGraphics.ApplyPalette += On_OracleGraphics_ApplyPalette;
         On.OracleGraphics.Update += On_OracleGraphics_Update;
+        //On.Oracle.ctor += On_Oracle_ctor;
+        IL.Oracle.OracleArm.Joint.Update += IL_Joint_Update;
+        IL.Oracle.OracleArm.Update += IL_OracleArm_Update;
+        //On.OracleGraphics.Halo.DrawSprites += On_Halo_DrawSprites;
+        On.Oracle.SetUpSwarmers += On_Oracle_SetUpSwarmers;
+    }
+    private static void On_Oracle_SetUpSwarmers(On.Oracle.orig_SetUpSwarmers orig, Oracle self) {
+        if (self is OracleWrapper) return;
+        orig(self);
+    }
+
+    private static void On_Halo_DrawSprites(On.OracleGraphics.Halo.orig_DrawSprites orig, OracleGraphics.Halo self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, float timeStacker, Vector2 camPos) {
+        orig(self, sLeaser, rCam, timeStacker, camPos);
+        if (self.owner.owner is not OracleWrapper wrapper) return;
+        foreach (var sprite in sLeaser.sprites) {
+            sprite.alpha = wrapper.Conscious ? sprite.alpha : 0f;
+        }
+    }
+
+    private static void IL_Joint_Update(ILContext il)
+    {
+        ILCursor ilCursor = new ILCursor(il);
+        if (ilCursor.TryGotoNext(MoveType.After, x => x.MatchLdsfld<Oracle.OracleID>("SS"), x => x.MatchCall(out MethodReference _)))
+            ilCursor.Emit(OpCodes.Ldarg_0).EmitDelegate((Func<bool, Oracle.OracleArm.Joint, bool>) ((flag, self) => flag || self.arm is OracleWrapper.Arm));
+        else
+            Plugin.Logger.LogError("Couldn't ILHook Oracle.OracleArm.Joint.Update!");
+    }
+    private static void IL_OracleArm_Update(ILContext il)
+    {
+        ILCursor ilCursor = new ILCursor(il);
+        for (int index = 1; index <= 3; ++index)
+        {
+            if (ilCursor.TryGotoNext(MoveType.After, x => x.MatchLdsfld<Oracle.OracleID>("SS"), x => x.MatchCall(out MethodReference _)))
+                ilCursor.Emit(OpCodes.Ldarg_0).EmitDelegate((Func<bool, Oracle.OracleArm, bool>) ((flag, self) => flag || self is OracleWrapper.Arm));
+            else
+                Plugin.Logger.LogError($"Couldn't ILHook Oracle.OracleArm.Update (part {index})!");
+        }
+    }
+
+    private static void On_Oracle_ctor(On.Oracle.orig_ctor orig, Oracle self, AbstractPhysicalObject abstractPhysicalObject, Room room) {
+        if (self is OracleWrapper) return;
+        orig(self, abstractPhysicalObject, room);
     }
 
     private static void On_OracleGraphics_ApplyPalette(On.OracleGraphics.orig_ApplyPalette orig, OracleGraphics self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, RoomPalette palette) {
@@ -37,6 +80,10 @@ public class Hooks {
         On.OracleGraphics.InitiateSprites -= On_OracleGraphics_InitiateSprites;
         On.OracleGraphics.ApplyPalette -= On_OracleGraphics_ApplyPalette;
         On.OracleGraphics.Update -= On_OracleGraphics_Update;
+        //On.Oracle.ctor -= On_Oracle_ctor;
+        IL.Oracle.OracleArm.Joint.Update -= IL_Joint_Update;
+        IL.Oracle.OracleArm.Update -= IL_OracleArm_Update;
+        On.Oracle.SetUpSwarmers -= On_Oracle_SetUpSwarmers;
     }
 
     private static void On_OracleGraphics_Update(On.OracleGraphics.orig_Update orig, OracleGraphics self) {

@@ -3,6 +3,7 @@ using System.CodeDom;
 using System.Linq;
 using HUD;
 using JetBrains.Annotations;
+using MoreSlugcats;
 using RWCustom;
 using UnityEngine;
 using Random = UnityEngine.Random;
@@ -10,19 +11,41 @@ using Random = UnityEngine.Random;
 namespace LibOracle;
 
 public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
-    public OracleID WrappedOracle = new("WrappedOracle", true);
+    public readonly OracleID WrappedOracle = new("WrappedOracle", true);
     public Vector2 Center => new((ArmArea.left + ArmArea.right) / 2f, (ArmArea.bottom + ArmArea.top) / 2f);
     protected OracleWrapper(PlacedObject pobj, Room room) : base(new AbstractPhysicalObject(room.world, AbstractPhysicalObject.AbstractObjectType.Oracle, null, new WorldCoordinate(room.abstractRoom.index, (int)pobj.pos.x, (int)pobj.pos.y, -1), room.game.GetNewID()), room) {
-        var data = (Data)pobj.data;
+        /*this.room = room;
+        bodyChunks = new BodyChunk[2];*/
         PObject = pobj;
+        /*for (int index = 0; index < bodyChunks.Length; ++index) {
+            bodyChunks[index] = new BodyChunk(this, index, Center, 6f, 0.5f);
+        }
+        bodyChunkConnections = new BodyChunkConnection[bodyChunks.Length - 1];
+        for (int index = 0; index < bodyChunkConnections.Length; ++index)
+            bodyChunkConnections[index] = new BodyChunkConnection(bodyChunks[index], bodyChunks[index + 1], 9f, BodyChunkConnection.Type.Normal, 1f, 0.5f);
+        airFriction = 0.99f;
+        gravity = 0.0f;
+        bounce = 0.1f;
+        surfaceFriction = 0.17f;
+        collisionLayer = 1;
+        waterFriction = 0.92f;
+        buoyancy = 0.95f;*/
+        var data = (Data)pobj.data;
         if (!data.Broken) {
             room.AddObject(myScreen = new OracleProjectionScreen(room, null)); // the behavior argument is not used whatsoever. thanks videocult
+            room.gravity = 0f;
         }
         Plugin.Logger.LogInfo($"New oracle in {room.abstractRoom.name}");
         currentGetTo = firstChunk.pos;
         oracleBehavior = new Behavior(this);
         behavior = (Behavior)oracleBehavior;
+        foreach (var t in room.updateList) {
+            if (t is not AntiGravity antiGravity) continue;
+            antiGravity.active = false;
+            break;
+        }
         arm = new Arm(this);
+        arm.isActive = true;
         foreach (var field in GetType().GetFields()) {
             if (!Attribute.IsDefined(field, typeof(OracleMemoryAttribute))) continue;
             if (!field.IsStatic) {
@@ -44,13 +67,15 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         Plugin.Logger.LogDebug(Center);
         lastPos = Center;
         TargetPos = Center;
-        foreach (OracleSwarmer oracleSwarmer in mySwarmers) {
-            oracleSwarmer.Destroy();
-        }
-        mySwarmers.Clear();
         State = new(this) {
             Id = OracleState.ID.Idle
         };
+    }
+
+    public override void HitByExplosion(float hitFac, Explosion explosion, int hitChunk) {
+        base.HitByExplosion(hitFac, explosion, hitChunk);
+        Vector2 dir = (bodyChunks[hitChunk].pos - explosion.pos).normalized;
+        bodyChunks[hitChunk].vel += dir * explosion.force;
     }
 
     private readonly PlacedObject PObject;
@@ -61,6 +86,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public Color EyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
     [CanBeNull] public string ThirdEyeSprite { get; set; } = null;
     public Color ThirdEyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
+    public string Name => room.world.region.subRegions.FirstOrDefault() ?? "???";
     public OracleState State { get; set; }
     public Vector2 LookPos { get; set; }
 
@@ -81,6 +107,8 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     private Vector2 baseIdeal;
     private Behavior behavior;
     ConversationWrapper Conversation;
+    public bool Conscious { get; set; } = true;
+    public new bool Consious => Conscious;
     protected virtual void ConversationEvents(ConversationWrapper convo) {}
 
     protected class ConversationWrapper(Conversation.IOwnAConversation owner, Conversation.ID id, DialogBox box) : Conversation(owner, id, box) {
@@ -137,38 +165,65 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         public override Vector2 GetToDir => Custom.DegToVec(wrapper.Angle);
     }
     public Player Player { get; set; }
+    protected internal void SetPalette(int palA, int palB, float blend) {
+        foreach (var t in room.game.cameras) {
+            if (t.room == room && !t.AboutToSwitchRoom)
+                t.ChangeBothPalettes(palA, palB, blend);
+        }
+    }
+    private BlackScreenOfDeath bsod; // black screen of death
+    
     public sealed override void Update(bool eu) {
         Player = room.game.AlivePlayers.Count > 0
             ? room.game.FirstAlivePlayer.realizedCreature as Player
             : null;
         behavior.lookPoint = LookPos;
         base.Update(eu);
+        if (bsod != null) {
+            if (bsod.room == null) room.AddObject(bsod);
+            Conscious = false;
+            if (arm != null) arm.isActive = false;
+            return;
+        }
         // Movement
-        currentGetTo = Custom.Bezier(lastPos, ClampVectorInRoom(lastPos + lastPosHandle), nextPos, ClampVectorInRoom(nextPos + nextPosHandle), pathProgression);
-        pathProgression = Mathf.Min(1f, pathProgression + 1f / Mathf.Lerp((float)(40.0 + pathProgression * 80.0),
-            Vector2.Distance(lastPos, nextPos) / 5f, 0.5f));
-        behavior.consistentBasePosCounter++;
-        if (room.readyForAI) { 
-            Vector2 vector2 = new Vector2(Random.value * room.PixelWidth, Random.value * room.PixelHeight);
-            if (!(room.GetTile(vector2).Solid || BasePosScore(vector2) + 40.0 >= BasePosScore(baseIdeal))) {
-                baseIdeal = vector2;
-                behavior.consistentBasePosCounter = 0;
-            }
-        }
-        else baseIdeal = nextPos;
-        if (State.Movement == OracleState.MovementBehavior.Static) {
-            if (TargetPos != Center) {
-                TargetPos = Center;
-                LookPos = TargetPos;
-            }
-            Angle = 0f;
-        }
-        ((Arm)arm).Update();
-        Conversation?.Update();
         try {
-            Update();
-        } catch (Exception e) {
-            // TODO: error handling
+            currentGetTo = Custom.Bezier(lastPos, ClampVectorInRoom(lastPos + lastPosHandle), nextPos,
+                ClampVectorInRoom(nextPos + nextPosHandle), pathProgression);
+            pathProgression = Mathf.Min(1f, pathProgression + 1f / Mathf.Lerp((float)(40.0 + pathProgression * 80.0),
+                Vector2.Distance(lastPos, nextPos) / 5f, 0.5f));
+            behavior.consistentBasePosCounter++;
+            if (room.readyForAI) {
+                Vector2 vector2 = new Vector2(Random.value * room.PixelWidth, Random.value * room.PixelHeight);
+                if (!(room.GetTile(vector2).Solid || BasePosScore(vector2) + 40.0 >= BasePosScore(baseIdeal))) {
+                    baseIdeal = vector2;
+                    behavior.consistentBasePosCounter = 0;
+                }
+            }
+            else baseIdeal = nextPos;
+
+            if (State.Movement == OracleState.MovementBehavior.Static) {
+                if (TargetPos != Center) {
+                    TargetPos = Center;
+                    LookPos = TargetPos;
+                }
+                Angle = 0f;
+            }
+
+            ((Arm)arm).Update();
+            Conversation?.Update();
+            try {
+                Update();
+            }
+            catch (Exception e) {
+                bsod = new(new Vector2(240f, 580f), this, e, false);
+                Plugin.Logger.LogError($"ERROR IN {GetType().Name} UPDATE()");
+                Plugin.Logger.LogError(e.ToString());
+            }
+        }
+        catch (Exception e) {
+            bsod = new(new Vector2(240f, 580f), this, e, true);
+            Plugin.Logger.LogError("ERROR IN ORACLEWRAPPER UPDATE()");
+            Plugin.Logger.LogError(e.ToString());
         }
     }
     // A separate method is used so that it can be wrapped in try-catch in the actual update
@@ -196,11 +251,13 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
             baseMoveSoundLoop = new StaticSoundLoop(SoundID.SS_AI_Base_Move_LOOP, oracle.firstChunk.pos, oracle.room, 1f, 1f);
         }
         public new virtual void Update() {
+            if (!isActive) return;
+            /*
             cornerPositions[0] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.top);
             cornerPositions[1] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.top);
             cornerPositions[2] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.bottom);
             cornerPositions[3] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.bottom);
-            if (oracle.Consious) {
+            if (((OracleWrapper)oracle).Conscious) {
                 float num = 1f;
                 if (ModManager.MSC)
                     num = oracle.dazed <= 240.0 ? (float) (1.0 - oracle.dazed / 240.0) : 0.0f; 
@@ -240,7 +297,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
             baseMoving = Vector2.Distance(BasePos(1f), vector2) > (baseMoving ? 50.0 : 350.0) && oracle.oracleBehavior.consistentBasePosCounter > 30;
             lastFramePos = framePos;
             if (baseMoving) {
-                framePos = Mathf.MoveTowardsAngle(framePos * 90f, num2 * 90f, 0.6f) / 90f;
+                framePos = Mathf.MoveTowardsAngle(framePos * 90f, num2 * 90f, 0.3f) / 90f;
                 if (baseMoveSoundLoop != null) {
                     baseMoveSoundLoop.volume = Mathf.Min(baseMoveSoundLoop.volume + 0.1f, 1f);
                     baseMoveSoundLoop.pitch = Mathf.Min(baseMoveSoundLoop.pitch + 0.025f, 1f);
@@ -255,7 +312,12 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
                 baseMoveSoundLoop.Update();
                 if (ModManager.MSC)
                     baseMoveSoundLoop.volume *= 1f - oracle.noiseSuppress;
-            }
+            }*/
+            cornerPositions[0] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.top);
+            cornerPositions[1] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.top);
+            cornerPositions[2] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.bottom);
+            cornerPositions[3] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.bottom);
+            base.Update();
         }
     }
     public static void RegisterOracle<TOracle>(string category) where TOracle : OracleWrapper {
