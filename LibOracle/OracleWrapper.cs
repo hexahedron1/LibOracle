@@ -13,16 +13,16 @@ namespace LibOracle;
 public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public readonly OracleID WrappedOracle = new("WrappedOracle", true);
     public Vector2 Center => new((ArmArea.left + ArmArea.right) / 2f, (ArmArea.bottom + ArmArea.top) / 2f);
+    public Vector2 BottomCenter => new(Center.x, ArmArea.bottom);
+    public Data PData => (Data)PObject.data;
     protected OracleWrapper(PlacedObject pobj, Room room) : base(new AbstractPhysicalObject(room.world, AbstractPhysicalObject.AbstractObjectType.Oracle, null, new WorldCoordinate(room.abstractRoom.index, (int)pobj.pos.x, (int)pobj.pos.y, -1), room.game.GetNewID()), room) {
-        /*this.room = room;
-        bodyChunks = new BodyChunk[2];*/
         PObject = pobj;
-        /*for (int index = 0; index < bodyChunks.Length; ++index) {
-            bodyChunks[index] = new BodyChunk(this, index, Center, 6f, 0.5f);
+        for (int i = 0; i < bodyChunks.Length; ++i) {
+            bodyChunks[i] = new BodyChunk(this, i, Center - new Vector2(0, 20), 6f, 0.5f);
         }
-        bodyChunkConnections = new BodyChunkConnection[bodyChunks.Length - 1];
-        for (int index = 0; index < bodyChunkConnections.Length; ++index)
+        /*for (int index = 0; index < bodyChunkConnections.Length; ++index)
             bodyChunkConnections[index] = new BodyChunkConnection(bodyChunks[index], bodyChunks[index + 1], 9f, BodyChunkConnection.Type.Normal, 1f, 0.5f);
+        bodyChunkConnections = new BodyChunkConnection[bodyChunks.Length - 1];
         airFriction = 0.99f;
         gravity = 0.0f;
         bounce = 0.1f;
@@ -31,7 +31,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         waterFriction = 0.92f;
         buoyancy = 0.95f;*/
         var data = (Data)pobj.data;
-        if (!data.Broken) {
+        if (!PData.Broken) {
             room.AddObject(myScreen = new OracleProjectionScreen(room, null)); // the behavior argument is not used whatsoever. thanks videocult
             room.gravity = 0f;
         }
@@ -39,7 +39,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         currentGetTo = firstChunk.pos;
         oracleBehavior = new Behavior(this);
         behavior = (Behavior)oracleBehavior;
-        foreach (var t in room.updateList) {
+        if (PData.Broken) foreach (var t in room.updateList) {
             if (t is not AntiGravity antiGravity) continue;
             antiGravity.active = false;
             break;
@@ -66,30 +66,37 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
             bodyChunkConnections[index] = new BodyChunkConnection(bodyChunks[index], bodyChunks[index + 1], 9f, BodyChunkConnection.Type.Normal, 1f, 0.5f);
         Plugin.Logger.LogDebug(Center);
         lastPos = Center;
-        TargetPos = Center;
+        LookPos = Center;
+        mySwarmers?.Clear();
         State = new(this) {
             Id = OracleState.ID.Idle
         };
     }
-
+    internal bool Crashed;
     public override void HitByExplosion(float hitFac, Explosion explosion, int hitChunk) {
         base.HitByExplosion(hitFac, explosion, hitChunk);
         Vector2 dir = (bodyChunks[hitChunk].pos - explosion.pos).normalized;
-        bodyChunks[hitChunk].vel += dir * explosion.force;
+        bodyChunks[hitChunk].vel += dir * explosion.force * 10;
+        Plugin.Logger.LogDebug("ow xplosion");
     }
-
     private readonly PlacedObject PObject;
     private IntRect ArmArea => new((int)(PObject.pos.x/20f)*20, (int)(PObject.pos.y/20f)*20, (int)(PObject.pos.x/20f)*20+((Data)PObject.data).ArmArea.x*20, (int)(PObject.pos.y/20f)*20+((Data)PObject.data).ArmArea.y*20);
+    #region Properties
     public Color SkinColor { get; set; } = new(1f, 1f, 1f);
     public Color RobeColor { get; set; } = new(0.2f, 0.2f, 0.2f);
     public Color RobeFadeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
     public Color EyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
+    public Color LightColor { get; set; } = new(1f, 1f, 1f);
+    public float LightAlpha { get; set; } = 0.5f;
     [CanBeNull] public string ThirdEyeSprite { get; set; } = null;
     public Color ThirdEyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
-    public string Name => room.world.region.subRegions.FirstOrDefault() ?? "???";
+    public bool EyesOpen { get; set; } = true;
     public OracleState State { get; set; }
     public Vector2 LookPos { get; set; }
-
+    public bool InSitPosition { get; set; }
+    public bool HoldKnees { get; set; }
+    public float CrawlSpeed { get; set; }
+    #endregion Properties
     public new virtual void SetUpSwarmers() { }
     public new virtual void SetUpMarbles() { }
     public static bool IsPlayerInEntrance(Player player) => player.bodyMode == Player.BodyModeIndex.CorridorClimb;
@@ -97,12 +104,12 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         
     }
 
-    private Vector2 nextPos;
-    private Vector2 lastPos;
-    private Vector2 currentGetTo;
-    private Vector2 lastPosHandle;
-    private Vector2 nextPosHandle;
-    private float pathProgression;
+    protected Vector2 nextPos;
+    protected Vector2 lastPos;
+    protected Vector2 currentGetTo;
+    protected Vector2 lastPosHandle;
+    protected Vector2 nextPosHandle;
+    protected float pathProgression;
     public float Angle { get; set; }
     private Vector2 baseIdeal;
     private Behavior behavior;
@@ -111,10 +118,6 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public new bool Consious => Conscious;
     protected virtual void ConversationEvents(ConversationWrapper convo) {}
 
-    protected class ConversationWrapper(Conversation.IOwnAConversation owner, Conversation.ID id, DialogBox box) : Conversation(owner, id, box) {
-        protected OracleWrapper oracle => (OracleWrapper)interfaceOwner;
-        public override void AddEvents() => oracle.ConversationEvents(this);
-    }
 
     private SaveState SaveState => ((StoryGameSession)room.game.session).saveState;
     public void Say(string line, int extraLinger = 0) {
@@ -146,6 +149,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public Vector2 TargetPos {
         get => nextPos;
         set {
+            if (nextPos == value) return;
             nextPos = value;
             nextPosHandle = -Custom.DegToVec(Angle) * (Mathf.Lerp(0.3f, 0.65f, Random.value) * Vector2.Distance(lastPos, nextPos));
             if (!Mathf.Approximately(pathProgression, 1f)) {
@@ -154,16 +158,10 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
                 lastPos = currentGetTo;
                 pathProgression = 0.0f;
             }
-            Plugin.Logger.LogDebug($"New pos: {value.x}, {value.y}");
+            //Plugin.Logger.LogDebug($"New pos: {value.x}, {value.y}");
         }
     }
 
-    public class Behavior(OracleWrapper o) : OracleBehavior(o) {
-        private OracleWrapper wrapper => (OracleWrapper)oracle;
-        public override Vector2 BaseGetToPos => wrapper.baseIdeal;
-        public override Vector2 OracleGetToPos => wrapper.currentGetTo;
-        public override Vector2 GetToDir => Custom.DegToVec(wrapper.Angle);
-    }
     public Player Player { get; set; }
     protected internal void SetPalette(int palA, int palB, float blend) {
         foreach (var t in room.game.cameras) {
@@ -171,9 +169,9 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
                 t.ChangeBothPalettes(palA, palB, blend);
         }
     }
-    private BlackScreenOfDeath bsod; // black screen of death
+    private BlackScreenOfDeath bsod;
     
-    public sealed override void Update(bool eu) {
+    public override void Update(bool eu) {
         Player = room.game.AlivePlayers.Count > 0
             ? room.game.FirstAlivePlayer.realizedCreature as Player
             : null;
@@ -182,7 +180,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         if (bsod != null) {
             if (bsod.room == null) room.AddObject(bsod);
             Conscious = false;
-            if (arm != null) arm.isActive = false;
+            EyesOpen = false;
             return;
         }
         // Movement
@@ -192,25 +190,16 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
             pathProgression = Mathf.Min(1f, pathProgression + 1f / Mathf.Lerp((float)(40.0 + pathProgression * 80.0),
                 Vector2.Distance(lastPos, nextPos) / 5f, 0.5f));
             behavior.consistentBasePosCounter++;
-            if (room.readyForAI) {
+            if (room.readyForAI && !PData.Broken) {
                 Vector2 vector2 = new Vector2(Random.value * room.PixelWidth, Random.value * room.PixelHeight);
                 if (!(room.GetTile(vector2).Solid || BasePosScore(vector2) + 40.0 >= BasePosScore(baseIdeal))) {
                     baseIdeal = vector2;
                     behavior.consistentBasePosCounter = 0;
                 }
             }
-            else baseIdeal = nextPos;
+            else baseIdeal = baseIdeal = PData.BrokenArmBasePos + PObject.pos;
 
-            if (State.Movement == OracleState.MovementBehavior.Static) {
-                if (TargetPos != Center) {
-                    TargetPos = Center;
-                    LookPos = TargetPos;
-                }
-                Angle = 0f;
-            }
 
-            ((Arm)arm).Update();
-            Conversation?.Update();
             try {
                 Update();
             }
@@ -219,6 +208,8 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
                 Plugin.Logger.LogError($"ERROR IN {GetType().Name} UPDATE()");
                 Plugin.Logger.LogError(e.ToString());
             }
+            ((Arm)arm).Update();
+            Conversation?.Update();
         }
         catch (Exception e) {
             bsod = new(new Vector2(240f, 580f), this, e, true);
@@ -227,9 +218,18 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         }
     }
     // A separate method is used so that it can be wrapped in try-catch in the actual update
-    // this is what is intended to be overridden
-    public virtual void Update() {
-        
+    // this is what is intended to be overridden by an extending class
+    protected virtual void Update() {
+        if (State.Movement == OracleState.MovementBehavior.Static) {
+            if (PData.Broken) {
+                TargetPos = BottomCenter + new Vector2(0, 40f);
+            } else {
+                if (TargetPos != Center) {
+                    TargetPos = Center;
+                }
+            }
+            Angle = 0f;
+        }
     }
     protected virtual float BasePosScore(Vector2 tryPos) => Mathf.Abs(Vector2.Distance(nextPos, tryPos) - 200f) + Custom.LerpMap(Vector2.Distance(Player.DangerPos, tryPos), 40f, 300f, 800f, 0.0f);
     
@@ -238,87 +238,6 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         vector2.x = Mathf.Clamp(vector2.x, arm.cornerPositions[0].x + 10f, arm.cornerPositions[1].x - 10f);
         vector2.y = Mathf.Clamp(vector2.y, arm.cornerPositions[2].y + 10f, arm.cornerPositions[1].y - 10f);
         return vector2;
-    }
-
-    public class Data(PlacedObject obj) : Pom.Pom.ManagedData(obj, null) {
-        [Pom.Pom.IntVector2Field("armArea", 28, 28, Pom.Pom.IntVector2Field.IntVectorReprType.rect)]
-        public IntVector2 ArmArea;
-        [Pom.Pom.BooleanField("broken", false, displayName: "Broken")]
-        public bool Broken;
-    }
-    public class Arm : OracleArm {
-        public Arm(OracleWrapper oracle) : base(oracle) {
-            baseMoveSoundLoop = new StaticSoundLoop(SoundID.SS_AI_Base_Move_LOOP, oracle.firstChunk.pos, oracle.room, 1f, 1f);
-        }
-        public new virtual void Update() {
-            if (!isActive) return;
-            /*
-            cornerPositions[0] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.top);
-            cornerPositions[1] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.top);
-            cornerPositions[2] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.bottom);
-            cornerPositions[3] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.bottom);
-            if (((OracleWrapper)oracle).Conscious) {
-                float num = 1f;
-                if (ModManager.MSC)
-                    num = oracle.dazed <= 240.0 ? (float) (1.0 - oracle.dazed / 240.0) : 0.0f; 
-                foreach (var t in oracle.bodyChunks)
-                    t.vel *= 0.4f;
-                oracle.bodyChunks[0].vel += Vector2.ClampMagnitude(oracle.oracleBehavior.OracleGetToPos - oracle.bodyChunks[0].pos, 100f) / 100f * (6.2f * num);
-                for (int index = 1; index < oracle.bodyChunks.Length; ++index)
-                    oracle.bodyChunks[index].vel += Vector2.ClampMagnitude(oracle.oracleBehavior.OracleGetToPos - ((OracleWrapper)oracle).oracleBehavior.GetToDir * oracle.bodyChunkConnections[0].distance - oracle.bodyChunks[0].pos, 100f) / 100f * (3.2f * num);
-            }
-            Vector2 baseGetToPos = oracle.oracleBehavior.BaseGetToPos;
-            Vector2 vector2 = new Vector2(Mathf.Clamp(baseGetToPos.x, cornerPositions[0].x, cornerPositions[1].x), cornerPositions[0].y);
-            float num1 = Vector2.Distance(vector2, baseGetToPos);
-            float num2 = Mathf.InverseLerp(cornerPositions[0].x, cornerPositions[1].x, baseGetToPos.x);
-            for (int index = 1; index < 4; ++index) {
-                Vector2 a = index % 2 != 0 
-                    ? new Vector2(cornerPositions[index].x, Mathf.Clamp(baseGetToPos.y, cornerPositions[2].y, cornerPositions[0].y))
-                    : new Vector2(Mathf.Clamp(baseGetToPos.x, cornerPositions[0].x, cornerPositions[1].x), cornerPositions[index].y);
-                float num3 = Vector2.Distance(a, baseGetToPos);
-                if (num3 < num1) {
-                    vector2 = a;
-                    num1 = num3;
-                    switch (index) {
-                        case 1:
-                            num2 = index + Mathf.InverseLerp(cornerPositions[0].y, cornerPositions[2].y, baseGetToPos.y);
-                            continue;
-                        case 2:
-                            num2 = index + Mathf.InverseLerp(cornerPositions[1].x, cornerPositions[0].x, baseGetToPos.x);
-                            continue;
-                        case 3:
-                            num2 = index + Mathf.InverseLerp(cornerPositions[2].y, cornerPositions[0].y, baseGetToPos.y);
-                            continue;
-                        default:
-                            continue;
-                    }
-                }
-            }
-            baseMoving = Vector2.Distance(BasePos(1f), vector2) > (baseMoving ? 50.0 : 350.0) && oracle.oracleBehavior.consistentBasePosCounter > 30;
-            lastFramePos = framePos;
-            if (baseMoving) {
-                framePos = Mathf.MoveTowardsAngle(framePos * 90f, num2 * 90f, 0.3f) / 90f;
-                if (baseMoveSoundLoop != null) {
-                    baseMoveSoundLoop.volume = Mathf.Min(baseMoveSoundLoop.volume + 0.1f, 1f);
-                    baseMoveSoundLoop.pitch = Mathf.Min(baseMoveSoundLoop.pitch + 0.025f, 1f);
-                }
-            }
-            else if (baseMoveSoundLoop != null) {
-                baseMoveSoundLoop.volume = Mathf.Max(baseMoveSoundLoop.volume - 0.1f, 0.0f);
-                baseMoveSoundLoop.pitch = Mathf.Max(baseMoveSoundLoop.pitch - 0.025f, 0.5f);
-            }
-            if (baseMoveSoundLoop != null) {
-                baseMoveSoundLoop.pos = BasePos(1f);
-                baseMoveSoundLoop.Update();
-                if (ModManager.MSC)
-                    baseMoveSoundLoop.volume *= 1f - oracle.noiseSuppress;
-            }*/
-            cornerPositions[0] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.top);
-            cornerPositions[1] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.top);
-            cornerPositions[2] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.bottom);
-            cornerPositions[3] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.bottom);
-            base.Update();
-        }
     }
     public static void RegisterOracle<TOracle>(string category) where TOracle : OracleWrapper {
         Plugin.Logger.LogInfo($"Registering new oracle: {typeof(TOracle).Name} in {category}");
@@ -332,6 +251,133 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public virtual string ReplaceParts(string s) => s;
 
     public virtual void SpecialEvent(string eventName) { }
+    #region Subclasses
+    protected class ConversationWrapper(Conversation.IOwnAConversation owner, Conversation.ID id, DialogBox box) : Conversation(owner, id, box) {
+        protected OracleWrapper oracle => (OracleWrapper)interfaceOwner;
+        public override void AddEvents() => oracle.ConversationEvents(this);
+    }
+    public class Data(PlacedObject obj) : Pom.Pom.ManagedData(obj, null) {
+        [Pom.Pom.IntVector2Field("armArea", 28, 28, Pom.Pom.IntVector2Field.IntVectorReprType.rect)]
+        public IntVector2 ArmArea;
+        [Pom.Pom.BooleanField("broken", false, displayName: "Broken")]
+        public bool Broken;
+        [Pom.Pom.Vector2Field("brokenArmBasePos", 280f, 0f, Pom.Pom.Vector2Field.VectorReprType.none, "Broken arm base pos")]
+        public Vector2 BrokenArmBasePos;
+    }
+    public class Behavior(OracleWrapper o) : OracleBehavior(o) {
+        private OracleWrapper wrapper => (OracleWrapper)oracle;
+        public override Vector2 BaseGetToPos => wrapper.baseIdeal;
+        public override Vector2 OracleGetToPos => wrapper.currentGetTo;
+        public override Vector2 GetToDir => Custom.DegToVec(wrapper.Angle);
+        public override bool EyesClosed => !wrapper.EyesOpen;
+    }
+    public class Arm : OracleArm {
+        public Arm(OracleWrapper oracle) : base(oracle) {
+            baseMoveSoundLoop = new StaticSoundLoop(SoundID.SS_AI_Base_Move_LOOP, oracle.firstChunk.pos, oracle.room, 1f, 1f);
+        }
+        protected OracleWrapper wrapper => (OracleWrapper)oracle;
+        public new virtual void Update() {
+            cornerPositions[0] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.top);
+            cornerPositions[1] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.top);
+            cornerPositions[2] = new Vector2(((OracleWrapper)oracle).ArmArea.right, ((OracleWrapper)oracle).ArmArea.bottom);
+            cornerPositions[3] = new Vector2(((OracleWrapper)oracle).ArmArea.left, ((OracleWrapper)oracle).ArmArea.bottom);
+            if (isActive) {
+                if (!wrapper.PData.Broken) {
+                    if (oracle.Consious) {
+                        float num = oracle.dazed <= 240.0 ? (float)(1.0 - oracle.dazed / 240.0) : 0.0f;
+                        foreach (var t in oracle.bodyChunks) t.vel *= 0.4f;
+                        oracle.bodyChunks[0].vel += Vector2.ClampMagnitude(oracle.oracleBehavior.OracleGetToPos - oracle.bodyChunks[0].pos, 100f) / 100f * (6.2f * num);
+                        for (int index = 1; index < oracle.bodyChunks.Length; ++index)
+                            oracle.bodyChunks[index].vel += Vector2.ClampMagnitude(oracle.oracleBehavior.OracleGetToPos - oracle.oracleBehavior.GetToDir * oracle.bodyChunkConnections[0].distance - oracle.bodyChunks[0].pos, 100f) / 100f * (3.2f * num);
+                    }
+                    Vector2 baseGetToPos = oracle.oracleBehavior.BaseGetToPos;
+                    Vector2 vector2 = new Vector2(Mathf.Clamp(baseGetToPos.x, cornerPositions[0].x, cornerPositions[1].x), cornerPositions[0].y);
+                    float num1 = Vector2.Distance(vector2, baseGetToPos);
+                    float num2 = Mathf.InverseLerp(cornerPositions[0].x, cornerPositions[1].x, baseGetToPos.x);
+                    for (int index = 1; index < 4; ++index) {
+                        Vector2 a = index % 2 != 0 ? new Vector2(cornerPositions[index].x, Mathf.Clamp(baseGetToPos.y, cornerPositions[2].y, cornerPositions[0].y)) : (!ModManager.MSC || !Region.IsRubiconRegion(oracle.room.world.name) || !(oracle.ID == OracleID.SS) ? (!ModManager.MSC || !Region.IsRubiconRegion(oracle.room.world.name) || !(oracle.ID == MoreSlugcatsEnums.OracleID.DM) ? new Vector2(Mathf.Clamp(baseGetToPos.x, cornerPositions[0].x, cornerPositions[1].x), cornerPositions[index].y) : new Vector2(Mathf.Clamp(baseGetToPos.x, cornerPositions[0].x + (float)((cornerPositions[1].x - (double)cornerPositions[0].x) * 0.6000000238418579), cornerPositions[1].x), cornerPositions[index].y)) : new Vector2(Mathf.Clamp(baseGetToPos.x, cornerPositions[0].x, cornerPositions[0].x + (float)((cornerPositions[1].x - (double)cornerPositions[0].x) * 0.4000000059604645)), cornerPositions[index].y));
+                        float num3 = Vector2.Distance(a, baseGetToPos);
+                        if (num3 < (double)num1) {
+                            vector2 = a;
+                            num1 = num3;
+                            switch (index) {
+                                case 1:
+                                    num2 = index + Mathf.InverseLerp(cornerPositions[0].y, cornerPositions[2].y, baseGetToPos.y);
+                                    continue;
+                                case 2:
+                                    num2 = index + Mathf.InverseLerp(cornerPositions[1].x, cornerPositions[0].x, baseGetToPos.x);
+                                    continue;
+                                case 3:
+                                    num2 = index + Mathf.InverseLerp(cornerPositions[2].y, cornerPositions[0].y, baseGetToPos.y);
+                                    continue;
+                                default:
+                                    continue;
+                            }
+                        }
+
+                    }
+                    baseMoving = Vector2.Distance(BasePos(1f), vector2) > (baseMoving ? 50.0 : 350.0) && oracle.oracleBehavior.consistentBasePosCounter > 30;
+                    lastFramePos = framePos;
+                    if (baseMoving) {
+                        framePos = Mathf.MoveTowardsAngle(framePos * 90f, num2 * 90f, 0.4f) / 90f;
+                        if (baseMoveSoundLoop != null) {
+                            baseMoveSoundLoop.volume = Mathf.Min(baseMoveSoundLoop.volume + 0.1f, 1f);
+                            baseMoveSoundLoop.pitch = Mathf.Min(baseMoveSoundLoop.pitch + 0.025f, 1f);
+                        }
+                    }
+                    else if (baseMoveSoundLoop != null) {
+                        baseMoveSoundLoop.volume = Mathf.Max(baseMoveSoundLoop.volume - 0.1f, 0.0f);
+                        baseMoveSoundLoop.pitch = Mathf.Max(baseMoveSoundLoop.pitch - 0.025f, 0.5f);
+                    }
+                    if (baseMoveSoundLoop != null) {
+                        baseMoveSoundLoop.pos = BasePos(1f);
+                        baseMoveSoundLoop.Update();
+                        if (ModManager.MSC)
+                            baseMoveSoundLoop.volume *= 1f - oracle.noiseSuppress;
+                    }
+                } else {
+                    //joints[1].vel += Vector2.ClampMagnitude(new Vector2(1774f, 66f) - joints[1].pos, 50f) / 50f * 5f;
+                    /*
+                    oracle.bodyChunks[1].vel *= 0.9f;
+                    oracle.bodyChunks[0].vel *= 0.9f;
+                    if (wrapper.InSitPosition) {
+                        oracle.bodyChunks[0].vel += Vector2.ClampMagnitude(oracle.oracleBehavior.OracleGetToPos - oracle.bodyChunks[0].pos, 100f) / 100f * 0.5f;
+                        oracle.bodyChunks[1].vel += Vector2.ClampMagnitude(oracle.oracleBehavior.OracleGetToPos - oracle.oracleBehavior.GetToDir * oracle.bodyChunkConnections[0].distance - oracle.bodyChunks[0].pos, 100f) / 100f * 0.2f;
+                    }
+                    */
+                    Vector2 baseGetToPos = oracle.oracleBehavior.BaseGetToPos;
+                    Vector2 vector2 = new Vector2(Mathf.Clamp(baseGetToPos.x, cornerPositions[0].x, cornerPositions[1].x), cornerPositions[0].y);
+                    float num1 = Vector2.Distance(vector2, baseGetToPos);
+                    float num2 = Mathf.InverseLerp(cornerPositions[0].x, cornerPositions[1].x, baseGetToPos.x);
+                    for (int index = 1; index < 4; ++index) {
+                        Vector2 a = index % 2 != 0 ? new Vector2(cornerPositions[index].x, Mathf.Clamp(baseGetToPos.y, cornerPositions[2].y, cornerPositions[0].y)) : (!ModManager.MSC || !Region.IsRubiconRegion(oracle.room.world.name) || !(oracle.ID == OracleID.SS) ? (!ModManager.MSC || !Region.IsRubiconRegion(oracle.room.world.name) || !(oracle.ID == MoreSlugcatsEnums.OracleID.DM) ? new Vector2(Mathf.Clamp(baseGetToPos.x, cornerPositions[0].x, cornerPositions[1].x), cornerPositions[index].y) : new Vector2(Mathf.Clamp(baseGetToPos.x, cornerPositions[0].x + (float)((cornerPositions[1].x - (double)cornerPositions[0].x) * 0.6000000238418579), cornerPositions[1].x), cornerPositions[index].y)) : new Vector2(Mathf.Clamp(baseGetToPos.x, cornerPositions[0].x, cornerPositions[0].x + (float)((cornerPositions[1].x - (double)cornerPositions[0].x) * 0.4000000059604645)), cornerPositions[index].y));
+                        float num3 = Vector2.Distance(a, baseGetToPos);
+                        if (num3 < (double)num1) {
+                            vector2 = a;
+                            num1 = num3;
+                            switch (index) {
+                                case 1:
+                                    num2 = index + Mathf.InverseLerp(cornerPositions[0].y, cornerPositions[2].y, baseGetToPos.y);
+                                    continue;
+                                case 2:
+                                    num2 = index + Mathf.InverseLerp(cornerPositions[1].x, cornerPositions[0].x, baseGetToPos.x);
+                                    continue;
+                                case 3:
+                                    num2 = index + Mathf.InverseLerp(cornerPositions[2].y, cornerPositions[0].y, baseGetToPos.y);
+                                    continue;
+                                default:
+                                    continue;
+                            }
+                        }
+
+                    }
+                    framePos = num2;
+                }
+            }
+            foreach (var t in joints) t.Update();
+        }
+    }
+    #endregion Subclasses
 }
 
 public class OracleState(OracleWrapper owner) {

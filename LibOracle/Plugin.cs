@@ -19,7 +19,7 @@ namespace LibOracle;
 sealed class Plugin : BaseUnityPlugin {
     public const string GUID = "hexahedron1.liboracle";
     public const string Name = "LibOracle";
-    public const string Version = "0.1.31";
+    public const string Version = "0.1.79";
     public new static ManualLogSource Logger;
     private static bool IsInit;
 
@@ -33,10 +33,8 @@ sealed class Plugin : BaseUnityPlugin {
         Hooks.Unapply();
         On.RainWorld.OnModsInit -= OnModsInit;
     }
-
     private void OnModsInit(On.RainWorld.orig_OnModsInit orig, RainWorld self) {
         orig(self);
-
         if (IsInit) return;
         IsInit = true;
     }
