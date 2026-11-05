@@ -1,6 +1,7 @@
 using System;
 using System.CodeDom;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using HUD;
 using JetBrains.Annotations;
 using MoreSlugcats;
@@ -78,6 +79,11 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         Vector2 dir = (bodyChunks[hitChunk].pos - explosion.pos).normalized;
         bodyChunks[hitChunk].vel += dir * explosion.force * 10;
         Plugin.Logger.LogDebug("ow xplosion");
+        InGameEvent(IngameEvent.OracleHitByExplosion, explosion.pos, new Tuple<Explosion>(explosion));
+    }
+    public override void HitByWeapon(Weapon weapon) {
+        base.HitByWeapon(weapon);
+        InGameEvent(IngameEvent.OracleHitByWeapon, weapon.firstChunk.pos, new Tuple<Weapon>(weapon));
     }
     private readonly PlacedObject PObject;
     private IntRect ArmArea => new((int)(PObject.pos.x/20f)*20, (int)(PObject.pos.y/20f)*20, (int)(PObject.pos.x/20f)*20+((Data)PObject.data).ArmArea.x*20, (int)(PObject.pos.y/20f)*20+((Data)PObject.data).ArmArea.y*20);
@@ -90,19 +96,18 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public float LightAlpha { get; set; } = 0.5f;
     [CanBeNull] public string ThirdEyeSprite { get; set; } = null;
     public Color ThirdEyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
-    public bool EyesOpen { get; set; } = true;
+    public float CrawlSpeed { get; set; }
     public OracleState State { get; set; }
     public Vector2 LookPos { get; set; }
     public bool InSitPosition { get; set; }
     public bool HoldKnees { get; set; }
-    public float CrawlSpeed { get; set; }
+    public bool EyesOpen { get; set; } = true;
+    public readonly Vector2?[] HandDirections = new Vector2?[2];
     #endregion Properties
     public new virtual void SetUpSwarmers() { }
     public new virtual void SetUpMarbles() { }
     public static bool IsPlayerInEntrance(Player player) => player.bodyMode == Player.BodyModeIndex.CorridorClimb;
-    public virtual void StateSwitch(OracleState.ID newState) {
-        
-    }
+    public virtual void StateSwitch(OracleState.ID newState) { }
 
     protected Vector2 nextPos;
     protected Vector2 lastPos;
@@ -119,9 +124,9 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     protected virtual void ConversationEvents(ConversationWrapper convo) {}
 
 
-    private SaveState SaveState => ((StoryGameSession)room.game.session).saveState;
+    public SaveState SaveState => ((StoryGameSession)room.game.session).saveState;
     public void Say(string line, int extraLinger = 0) {
-        if (SaveState.deathPersistentSaveData.theMark) DialogBox.NewMessage(line, extraLinger);
+        if (SaveState.deathPersistentSaveData.theMark || SaveState.saveStateNumber == MoreSlugcatsEnums.SlugcatStatsName.Saint) DialogBox.NewMessage(line, extraLinger);
         else room.PlaySound(Random.Range(0, 5) switch {
             1 => SoundID.SS_AI_Talk_2,
             2 => SoundID.SS_AI_Talk_3,
@@ -130,13 +135,15 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
             _ => SoundID.SS_AI_Talk_1
         }, firstChunk);
     }
-
     public void StartConversation(Conversation.ID id) {
         Conversation?.Destroy();
         Conversation = new ConversationWrapper(this, id, DialogBox) {
             colorMode = ModManager.MSC
         };
     }
+    public virtual string ReplaceParts(string s) => s;
+    public virtual void SpecialEvent(string eventName) { }
+    public virtual void InGameEvent(IngameEvent e, Vector2 position, [CanBeNull] ITuple eventData = null) { }
     public DialogBox DialogBox {
         get {
             if (room.game.cameras[0].hud.dialogBox == null) {
@@ -172,9 +179,9 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     private BlackScreenOfDeath bsod;
     
     public override void Update(bool eu) {
-        Player = room.game.AlivePlayers.Count > 0
-            ? room.game.FirstAlivePlayer.realizedCreature as Player
-            : null;
+        if (Player == null && room.game.AlivePlayers.Count > 0)
+            Player = room.game.FirstAlivePlayer.realizedCreature as Player;
+        if (Player != null && Player.room != room) Player = null;
         behavior.lookPoint = LookPos;
         base.Update(eu);
         if (bsod != null) {
@@ -220,7 +227,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     // A separate method is used so that it can be wrapped in try-catch in the actual update
     // this is what is intended to be overridden by an extending class
     protected virtual void Update() {
-        if (State.Movement == OracleState.MovementBehavior.Static) {
+        if (State.Movement == OracleState.MovementBehavior.Center) {
             if (PData.Broken) {
                 TargetPos = BottomCenter + new Vector2(0, 40f);
             } else {
@@ -247,14 +254,13 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         Plugin.Logger.LogInfo($"Registering new oracle: {typeof(TOracle).Name} in {category}");
         Pom.Pom.RegisterManagedObject<TOracle, TData, Pom.Pom.ManagedRepresentation>(typeof(TOracle).Name, category);
     }
-
-    public virtual string ReplaceParts(string s) => s;
-
-    public virtual void SpecialEvent(string eventName) { }
     #region Subclasses
     protected class ConversationWrapper(Conversation.IOwnAConversation owner, Conversation.ID id, DialogBox box) : Conversation(owner, id, box) {
         protected OracleWrapper oracle => (OracleWrapper)interfaceOwner;
         public override void AddEvents() => oracle.ConversationEvents(this);
+        public void LoadEventsFromFile(string filename) {
+            
+        }
     }
     public class Data(PlacedObject obj) : Pom.Pom.ManagedData(obj, null) {
         [Pom.Pom.IntVector2Field("armArea", 28, 28, Pom.Pom.IntVector2Field.IntVectorReprType.rect)]
@@ -392,20 +398,22 @@ public class OracleState(OracleWrapper owner) {
         } 
     }
 
-    public MovementBehavior Movement { get; set; } = MovementBehavior.Static;
+    public MovementBehavior Movement { get; set; } = MovementBehavior.Center;
     public class ID(string value, bool register) : ExtEnum<ID>(value, register) {
-        public static readonly ID Idle = new("Idle", true);
-        public static readonly ID Welcome = new("Idle", true);
+        public static readonly ID Idle = new(nameof(Idle), true);
+        public static readonly ID Welcome = new(nameof(Welcome), true);
     }
     public class MovementBehavior(string value, bool register) : ExtEnum<MovementBehavior>(value, register) {
-        public static readonly MovementBehavior Static = new("Static", true);
+        public static readonly MovementBehavior Center = new(nameof(Center), true);
     }
     public OracleWrapper Owner { get; set; } = owner;
     public int SwitchTime { get; set; }
     public int Time => Owner.room.game.timeInRegionThisCycle - SwitchTime;
     public int Progress { get; set; }
     public static bool operator ==(OracleState left, ID right) => left?.Id == right;
+    public static bool operator ==(OracleState left, MovementBehavior right) => left?.Movement == right;
     public static bool operator !=(OracleState left, ID right) => !(left == right);
+    public static bool operator !=(OracleState left, MovementBehavior right) => !(left == right);
 }
 [AttributeUsage(AttributeTargets.Field)]
 public class OracleMemoryAttribute : Attribute;

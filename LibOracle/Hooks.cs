@@ -7,7 +7,9 @@ using System.Text.RegularExpressions;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using MonoMod.Cil;
+using MoreSlugcats;
 using Newtonsoft.Json;
+using Noise;
 using On.Menu;
 using RWCustom;
 using UnityEngine;
@@ -23,16 +25,110 @@ public class Hooks {
         On.OracleGraphics.InitiateSprites += On_OracleGraphics_InitiateSprites;
         On.OracleGraphics.ApplyPalette += On_OracleGraphics_ApplyPalette;
         On.OracleGraphics.Update += On_OracleGraphics_Update;
-        //On.Oracle.ctor += On_Oracle_ctor;
-        IL.Oracle.OracleArm.Joint.Update += IL_Joint_Update;
-        //IL.Oracle.OracleArm.Update += IL_OracleArm_Update;
-        //On.OracleGraphics.Halo.DrawSprites += On_Halo_DrawSprites;
         On.Oracle.SetUpSwarmers += On_Oracle_SetUpSwarmers;
         On.OracleGraphics.UbilicalCord.SetStuckSegments += On_UbilicalCord_SetStuckSegments;
         On.OracleGraphics.Halo.Update += On_Halo_Update;
+        #region IngameEvent
+        On.Player.Die += (orig, self) => {
+            orig(self);
+            self.room.IngameEvent(IngameEvent.PlayerDied, self.DangerPos, new Tuple<Player>(self));
+        };
+        // TODO: PtM compat
+        On.Player.SlugcatGrab += (orig, self, o, used) => {
+            orig(self, o, used);
+            self.room.IngameEvent(IngameEvent.PlayerGrabObject, self.DangerPos, new Tuple<Player, PlayerCarryableItem>(self, (PlayerCarryableItem)o));
+        };
+        On.Player.SwallowObject += (orig, self, grasp) => {
+            orig(self, grasp);
+            self.room.IngameEvent(IngameEvent.PlayerSwallowObject, self.DangerPos, new Tuple<Player, PlayerCarryableItem>(self, (PlayerCarryableItem)self.grasps[grasp].grabbed));
+        };
+        On.Player.Regurgitate += (orig, self) => {
+            orig(self);
+            self.room.IngameEvent(IngameEvent.PlayerRegurgitateObject, self.DangerPos, new Tuple<Player>(self));
+        };
+        On.Player.BiteEdibleObject += (orig, self, eu) => {
+            orig(self, eu);
+            self.room.IngameEvent(IngameEvent.PlayerBiteObject, self.DangerPos, new Tuple<Player>(self));
+        };
+        On.Player.ObjectEaten += (orig, self, edible) => {
+            orig(self, edible);
+            self.room.IngameEvent(IngameEvent.PlayerEatObject, self.DangerPos, new Tuple<Player>(self));
+        };
+        On.Weapon.HitSomething += (orig, self, result, eu) => {
+            var ret = orig(self, result, eu);
+            if (ret && result.obj is Player player) self.room.IngameEvent(IngameEvent.PlayerHit, result.collisionPoint, new Tuple<Player, Weapon, Creature>(player, self, self.thrownBy));
+            return ret;
+        };
+        On.Player.Jump += (orig, self) => {
+            orig(self);
+            self.room.IngameEvent(IngameEvent.PlayerJump, self.DangerPos);
+        };
+        On.Player.GrabUpdate += (orig, self, eu) => {
+            orig(self, eu);
+            self.timeWithoutRobot = 1337;
+            if (self.SlugCatClass == MoreSlugcatsEnums.SlugcatStatsName.Spear && Mathf.Approximately(((PlayerGraphics)self.graphicsModule).tailSpecks.spearProg, 1.0f))
+                self.room.IngameEvent(IngameEvent.SpearMake, self.DangerPos, new Tuple<Player>(self));
+            if (self.SlugCatClass == MoreSlugcatsEnums.SlugcatStatsName.Spear && ((PlayerGraphics)self.graphicsModule).tailSpecks.spearProg > 0)
+                Plugin.Logger.LogDebug(((PlayerGraphics)self.graphicsModule).tailSpecks.spearProg);
+        };
+        // TODO: IL hook arti jump
+        On.Player.SpearOnBack.SpearToBack += (orig, self, spr) => {
+            orig(self, spr);
+            self.owner.room.IngameEvent(IngameEvent.SpearPutOnBack, spr.firstChunk.pos, new Tuple<Player,Spear>(self.owner, spr));
+        };
+        On.Player.SpearOnBack.SpearToHand += (orig, self, eu) => {
+            orig(self, eu);
+            self.owner.room.IngameEvent(IngameEvent.SpearPutOnBack, self.spear.firstChunk.pos, new Tuple<Player, Spear>(self.owner, self.spear));
+        };
+        On.Player.SpitUpCraftedObject += (orig, self) => {
+            orig(self);
+            self.room.IngameEvent(IngameEvent.CraftObject, self.DangerPos, new Tuple<Player>(self));
+        };
+        On.Player.ActivateAscension += (orig, self) => {
+            orig(self);
+            self.room.IngameEvent(IngameEvent.AscensionActivate, self.DangerPos, new Tuple<Player>(self));
+        };
+        On.Player.DeactivateAscension += (orig, self) => {
+            orig(self);
+            self.room.IngameEvent(IngameEvent.AscensionDeactivate, self.DangerPos, new Tuple<Player>(self));
+        };
+        // TODO: IL hook ascending creatures
+        On.Player.Tongue.Attatch += (orig, self) => {
+            orig(self);
+            self.player.room.IngameEvent(IngameEvent.TongueAttach, self.pos, new Tuple<Player>(self.player));
+        };
+        On.Player.Tongue.Release += (orig, self) => {
+            orig(self);
+            self.player.room.IngameEvent(IngameEvent.TongueRetract, self.pos, new Tuple<Player>(self.player));
+        };
+        // TODO: IL hook ascending OracleWrappers
+        On.Explosion.ctor += (orig, self, room, sourceObject, pos, time, rad, force, damage, stun, deafen, holder, factor, minStun, noise) => {
+            orig(self, room, sourceObject, pos, time, rad, force, damage, stun, deafen, holder, factor, minStun, noise);
+            room.IngameEvent(IngameEvent.Explosion, self.pos, new Tuple<Explosion>(self));
+        };
+        On.Room.InGameNoise += (orig, self, noise) => {
+            orig(self, noise);
+            self.IngameEvent(IngameEvent.Noise, noise.pos, new Tuple<InGameNoise>(noise));
+        };
+        On.Room.Update += (orig, self) => {
+            orig(self);
+            var cycle = self.game.world.rainCycle;
+            if (cycle.timer == cycle.cycleLength - 800) self.IngameEvent(IngameEvent.CycleEndSoon, Vector2.zero);
+            if (cycle.timer == cycle.cycleLength) self.IngameEvent(IngameEvent.CycleEnd, Vector2.zero);
+            if (cycle.preTimer == 1) self.IngameEvent(IngameEvent.PrecycleEnd, Vector2.zero);
+            if (cycle.dayNightCounter == 2640) self.IngameEvent(IngameEvent.NightStart, Vector2.zero);
+        };
+        On.MoreSlugcats.SingularityBomb.Thrown += (orig, self, by, pos, fromPos, dir, frc, eu) => {
+            orig(self, by, pos, fromPos, dir, frc, eu);
+            self.room.IngameEvent(IngameEvent.SingularityBombThrown, self.thrownPos, new Tuple<Creature, SingularityBomb>(by, self));
+        };
+        
+        #endregion
+        // evil hooks don't interact
+        IL.Oracle.OracleArm.Joint.Update += IL_Joint_Update;
         IL.OracleGraphics.Gown.InitiateSprite += IL_Gown_InitiateSprite;
     }
-    
+
     private static void IL_Gown_InitiateSprite(ILContext il) {
         try {
             ILCursor c = new ILCursor(il);
@@ -129,12 +225,15 @@ public class Hooks {
                 ? SharedPhysics.ExactTerrainRayTracePos(wrapper.room, wrapper.bodyChunks[wrapper.InSitPosition ? 0 : 1].pos, wrapper.bodyChunks[wrapper.InSitPosition ? 0 : 1].pos + new Vector2(i == 0 ? -54f : -24f, -40f) * (2f * wrapper.CrawlSpeed)) 
                 : SharedPhysics.ExactTerrainRayTracePos(wrapper.room, wrapper.firstChunk.pos, wrapper.firstChunk.pos + new Vector2(i == 0 ? -24f : -14f, -40f));
             if (mysteriousVector.HasValue) {
-                GenericBodyPart foot5 = self.feet[i];
-                foot5.vel = foot5.vel + Vector2.ClampMagnitude(mysteriousVector.Value - self.feet[i].pos, 10f) / 2f;
+                GenericBodyPart foot = self.feet[i];
+                foot.vel = foot.vel + Vector2.ClampMagnitude(mysteriousVector.Value - self.feet[i].pos, 10f) / 2f;
             }
             if (wrapper.HoldKnees) {
-                GenericBodyPart hand12 = self.hands[i];
-                hand12.vel += Vector2.ClampMagnitude(self.knees[i, 0] - self.hands[i].pos, 10f) / 3f;
+                GenericBodyPart hand = self.hands[i];
+                hand.vel += Vector2.ClampMagnitude(self.knees[i, 0] - self.hands[i].pos, 10f) / 3f;
+            } else if (wrapper.HandDirections[i] != null) {
+                GenericBodyPart hand = self.hands[i];
+                hand.vel += Custom.DirVec(hand.pos, wrapper.HandDirections[i].Value);
             }
             Vector2 vector2_6;
             if (mysteriousVector.HasValue)

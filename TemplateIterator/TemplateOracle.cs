@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using LibOracle;
 using On.Watcher;
 using RWCustom;
@@ -11,13 +13,15 @@ namespace TemplateIterator;
 public class TemplateOracle : OracleWrapper {
     public TemplateOracle(PlacedObject pobj, Room room) : base(pobj, room) {
         if (!PData.Broken) State.Movement = MoveRandomly;
-        else LightAlpha = 0f;
-        for (int i = 0; i < 5; i++) {
-            SLOracleSwarmer swarmer = new(
-                new AbstractPhysicalObject(room.world, AbstractPhysicalObject.AbstractObjectType.SLOracleSwarmer, null,
-                    room.GetWorldCoordinate(this.TargetPos + new Vector2(0, 100) + Custom.RNV()), room.game.GetNewID()), room.world);
-            room.AddObject(swarmer);
-            swarmers.Add(swarmer);
+        else {
+            LightAlpha = 0f;
+            for (int i = 0; i < 5; i++) {
+                SLOracleSwarmer swarmer = new(
+                    new AbstractPhysicalObject(room.world, AbstractPhysicalObject.AbstractObjectType.SLOracleSwarmer, null,
+                        room.GetWorldCoordinate(Center + new Vector2(0, 100) + Custom.RNV()), room.game.GetNewID()), room.world);
+                room.AddObject(swarmer);
+                swarmers.Add(swarmer);
+            }
         }
     }
     private List<SLOracleSwarmer> swarmers = [];
@@ -27,8 +31,22 @@ public class TemplateOracle : OracleWrapper {
     private int time = 0;
     private int timeBeenLookingAtBug;
     private CosmeticInsect CosmeticInsectOfInterest;
+    private bool seenSpearMake;
+    private int lookAtPlayerCounter = 0;
+    public override void InGameEvent(IngameEvent e, Vector2 position, ITuple eventData = null) {
+        if (e == IngameEvent.SpearMake && !seenSpearMake) {
+            seenSpearMake = true;
+            Say("That's disgusting");
+            lookAtPlayerCounter = 80;
+        } else if (e == IngameEvent.OracleHitByWeapon && ((Tuple<Weapon>)eventData)!.Item1.thrownBy is Player) {
+            Say("Ow");
+        } else if (e == IngameEvent.PlayerDied && ((Tuple<Player>)eventData)!.Item1 == Player) {
+            Say("My condolences");
+            lookAtPlayerCounter = 800;
+        } 
+    }
     protected override void Update() {
-        if (State.Movement == OracleState.MovementBehavior.Static) {
+        if (State.Movement == OracleState.MovementBehavior.Center) {
             if (PData.Broken) {
                 TargetPos = BottomCenter + new Vector2(-200, 40f);
             } else {
@@ -54,7 +72,10 @@ public class TemplateOracle : OracleWrapper {
                 }
             }
             // look at bug
-            if (CosmeticInsectOfInterest != null) {
+            if (lookAtPlayerCounter > 0) {
+                LookPos = Player.DangerPos;
+                lookAtPlayerCounter--;
+            } else if (CosmeticInsectOfInterest != null) {
                 LookPos = CosmeticInsectOfInterest.pos;
                 timeBeenLookingAtBug++;
                 if (!SharedPhysics.RayTraceTilesForTerrain(room, firstChunk.pos, CosmeticInsectOfInterest.pos)) CosmeticInsectOfInterest = null;
