@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using LibOracle;
+using MoreSlugcats;
 using On.Watcher;
 using RWCustom;
 using UnityEngine;
@@ -12,38 +13,69 @@ namespace TemplateIterator;
 
 public class TemplateOracle : OracleWrapper {
     public TemplateOracle(PlacedObject pobj, Room room) : base(pobj, room) {
-        if (!PData.Broken) State.Movement = MoveRandomly;
-        else {
+        if (PData.Broken)  {
             LightAlpha = 0f;
-            for (int i = 0; i < 5; i++) {
-                SLOracleSwarmer swarmer = new(
-                    new AbstractPhysicalObject(room.world, AbstractPhysicalObject.AbstractObjectType.SLOracleSwarmer, null,
-                        room.GetWorldCoordinate(Center + new Vector2(0, 100) + Custom.RNV()), room.game.GetNewID()), room.world);
-                room.AddObject(swarmer);
-                swarmers.Add(swarmer);
-            }
+        }
+        ID = new OracleID("TMIR", true);
+        ThirdEyeSprite = "Circle20";
+        ThirdEyeColor = RobeColor;
+        ThirdEyeScale = 1f;
+        if (PData.Broken) SetUpSwarmers();
+    }
+    public sealed override void SetUpSwarmers() {
+        for (int i = 0; i < 5; i++) {
+            SLOracleSwarmer swarmer = new(
+                new AbstractPhysicalObject(room.world, AbstractPhysicalObject.AbstractObjectType.SLOracleSwarmer, null,
+                    room.GetWorldCoordinate(Center + new Vector2(0, 100) + Custom.RNV()), room.game.GetNewID()), room.world);
+            room.AddObject(swarmer);
+            mySwarmers.Add(swarmer);
         }
     }
-    private List<SLOracleSwarmer> swarmers = [];
-    public static readonly OracleState.MovementBehavior MoveRandomly = new(nameof(MoveRandomly), true);
+    public static readonly Conversation.ID TMIR_SaintIntro = new(nameof(TMIR_SaintIntro), true);
+    public static readonly Conversation.ID TMIR_FileConvoTest = new(nameof(TMIR_FileConvoTest), true);
     [OracleMemory] public static int Encounters;
     private bool awareOfPlayer;
     private int time = 0;
     private int timeBeenLookingAtBug;
     private CosmeticInsect CosmeticInsectOfInterest;
     private bool seenSpearMake;
-    private int lookAtPlayerCounter = 0;
+    private int lookAtPlayerCounter;
+    protected override void ConversationEvents(ConversationWrapper convo) {
+        Plugin.Logger.LogDebug("ConversationEvents");
+        if (convo.id == TMIR_SaintIntro) {
+            convo.AddTextEvent("Hello! this is a conversation sequence.");
+            convo.AddTextEvent("If everything works, this should play out as a normal conversation.");
+            convo.AddSpecialEvent("testEvent");
+            convo.AddTextEvent("I should have received a special event.");
+        } else if (convo.id == TMIR_FileConvoTest) convo.LoadEventsFromFile("FileConvoTest");
+    }
+    public override void SpecialEvent(string eventName) {
+        Say("I received a special event: " + eventName);
+    }
     public override void InGameEvent(IngameEvent e, Vector2 position, ITuple eventData = null) {
+        Plugin.Logger.LogDebug("IngameEvent: " + e.value);
         if (e == IngameEvent.SpearMake && !seenSpearMake) {
             seenSpearMake = true;
             Say("That's disgusting");
             lookAtPlayerCounter = 80;
         } else if (e == IngameEvent.OracleHitByWeapon && ((Tuple<Weapon>)eventData)!.Item1.thrownBy is Player) {
-            Say("Ow");
+            Say("Ow", interrupt: true);
         } else if (e == IngameEvent.PlayerDied && ((Tuple<Player>)eventData)!.Item1 == Player) {
             Say("My condolences");
             lookAtPlayerCounter = 800;
-        } 
+        } else if (e == IngameEvent.OracleAscended && ((Tuple<Player, Oracle>)eventData)!.Item2 == this) {
+            Say("Nuh uh");
+            lookAtPlayerCounter = 800;
+        } else if (e == IngameEvent.CreatureAscended) {
+            Say("Rip");
+            lookAtPlayerCounter = 800;
+        } else if (e == IngameEvent.BombJump) {
+            Say("asfsgbndbnv");
+            lookAtPlayerCounter = 123;
+        } else if (e == IngameEvent.PlayerThrowObject && ((Tuple<Player, PhysicalObject>)eventData)!.Item2 is DataPearl pearl) {
+            if (PData.Broken) Say("Sorry I'm illiterate");
+            else { StartConversation(TMIR_FileConvoTest); }
+        }
     }
     protected override void Update() {
         if (State.Movement == OracleState.MovementBehavior.Center) {
@@ -54,9 +86,6 @@ public class TemplateOracle : OracleWrapper {
                     TargetPos = Center;
                 }
             }
-            Angle = 0f;
-        } else if (State.Movement == MoveRandomly && Mathf.Approximately(pathProgression, 1f) && State.Time%30 == 0) {
-            TargetPos = Center + Custom.RNV() * Random.value * 240f;
             Angle = 0f;
         }
         if (PData.Broken) {
@@ -72,7 +101,7 @@ public class TemplateOracle : OracleWrapper {
                 }
             }
             // look at bug
-            if (lookAtPlayerCounter > 0) {
+            if (lookAtPlayerCounter > 0 && Player != null) {
                 LookPos = Player.DangerPos;
                 lookAtPlayerCounter--;
             } else if (CosmeticInsectOfInterest != null) {
@@ -80,28 +109,33 @@ public class TemplateOracle : OracleWrapper {
                 timeBeenLookingAtBug++;
                 if (!SharedPhysics.RayTraceTilesForTerrain(room, firstChunk.pos, CosmeticInsectOfInterest.pos)) CosmeticInsectOfInterest = null;
             }
-            if (!awareOfPlayer && !IsPlayerInEntrance(Player)) {
-                awareOfPlayer = true;
-            }
-            if (awareOfPlayer) {
-                if (Player.room != room) awareOfPlayer = false;
-                if (time == 400) Say("Sorry little creature, i am too invested in the bugs to talk to you.");
-                time++;
-            }
-        } else { 
-            if (Player.room != room) return;
-            if (!awareOfPlayer && !IsPlayerInEntrance(Player)) {
-                awareOfPlayer = true;
-                Encounters++;
-                Say($"Hello! I have seen you {Encounters} times.");
+            if (Player != null) {
+                if (!awareOfPlayer && !IsPlayerInEntrance(Player)) {
+                    awareOfPlayer = true;
+                    if (Player.slugcatStats.name == MoreSlugcatsEnums.SlugcatStatsName.Saint) {
+                        StartConversation(TMIR_SaintIntro);
+                    }
+                }
+                if (awareOfPlayer && Player.slugcatStats.name != MoreSlugcatsEnums.SlugcatStatsName.Saint) {
+                    if (time == 400) Say("Sorry little creature, i am too invested in the bugs to talk to you.");
+                    time++;
+                }
+            } else awareOfPlayer = false;
+        } else {
+            if (Player == null) {
+                awareOfPlayer = false;
+                time = 0;
+                return;
             }
             if (awareOfPlayer) {
                 LookPos = Player.DangerPos;
                 time++;
             }
-            else time = 0;
-            if (Player.room != room)
-                awareOfPlayer = false;
+            if (!awareOfPlayer && !IsPlayerInEntrance(Player)) {
+                awareOfPlayer = true;
+                Encounters++;
+                Say($"Hello! I have seen you {Encounters} times.");
+            }
         }
     }
 }

@@ -8,9 +8,13 @@ public class IngameEvent(string value, bool register) : ExtEnum<IngameEvent>(val
     // Player
     public static readonly IngameEvent PlayerDied = new(nameof(PlayerDied), true);
     public static readonly IngameEvent PlayerMeow = new(nameof(PlayerMeow), true); // Push to Meow compat
-    // Player, PlayerCarriableItem
+    // Player, PhysicalObject
     public static readonly IngameEvent PlayerGrabObject = new(nameof(PlayerGrabObject), true);
-    // Player, PlayerCarriableItem
+    // Player, PhysicalObject
+    public static readonly IngameEvent PlayerReleaseObject = new(nameof(PlayerReleaseObject), true);
+    // Player, PhysicalObject
+    public static readonly IngameEvent PlayerThrowObject = new(nameof(PlayerThrowObject), true);
+    // Player, PhysicalObject
     public static readonly IngameEvent PlayerSwallowObject = new(nameof(PlayerSwallowObject), true);
     // Player
     public static readonly IngameEvent PlayerRegurgitateObject = new(nameof(PlayerRegurgitateObject), true);
@@ -43,14 +47,14 @@ public class IngameEvent(string value, bool register) : ExtEnum<IngameEvent>(val
     public static readonly IngameEvent AscensionDeactivate = new(nameof(AscensionDeactivate), true);
     // Player, Creature
     public static readonly IngameEvent CreatureAscended = new(nameof(CreatureAscended), true);
-    // Player
+    // Player, Oracle
+    public static readonly IngameEvent OracleAscended = new(nameof(OracleAscended), true);
+    // Player, bool (true = terrain, false = body chunk)
     public static readonly IngameEvent TongueAttach = new(nameof(TongueAttach), true);
     // Player
     public static readonly IngameEvent TongueRetract = new(nameof(TongueRetract), true);
     #endregion
     #region Oracle
-    
-    public static readonly IngameEvent OracleAscended = new(nameof(OracleAscended), true);
     // Explosion
     public static readonly IngameEvent OracleHitByExplosion = new(nameof(OracleHitByExplosion), true);
     // Weapon

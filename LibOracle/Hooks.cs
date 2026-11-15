@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -18,128 +19,261 @@ namespace LibOracle;
 
 public class Hooks {
     public static void Apply() {
-        On.SaveState.LoadGame += On_SaveState_LoadGame;
-        On.SaveState.SaveToString += On_SaveState_SaveToString;
-        On.OracleGraphics.SkinColor += On_OracleGraphics_SkinColor;
-        On.OracleGraphics.Gown.Color += On_Gown_Color;
-        On.OracleGraphics.InitiateSprites += On_OracleGraphics_InitiateSprites;
-        On.OracleGraphics.ApplyPalette += On_OracleGraphics_ApplyPalette;
-        On.OracleGraphics.Update += On_OracleGraphics_Update;
-        On.Oracle.SetUpSwarmers += On_Oracle_SetUpSwarmers;
-        On.OracleGraphics.UbilicalCord.SetStuckSegments += On_UbilicalCord_SetStuckSegments;
-        On.OracleGraphics.Halo.Update += On_Halo_Update;
-        #region IngameEvent
-        On.Player.Die += (orig, self) => {
-            orig(self);
-            self.room.IngameEvent(IngameEvent.PlayerDied, self.DangerPos, new Tuple<Player>(self));
-        };
-        // TODO: PtM compat
-        On.Player.SlugcatGrab += (orig, self, o, used) => {
-            orig(self, o, used);
-            self.room.IngameEvent(IngameEvent.PlayerGrabObject, self.DangerPos, new Tuple<Player, PlayerCarryableItem>(self, (PlayerCarryableItem)o));
-        };
-        On.Player.SwallowObject += (orig, self, grasp) => {
-            orig(self, grasp);
-            self.room.IngameEvent(IngameEvent.PlayerSwallowObject, self.DangerPos, new Tuple<Player, PlayerCarryableItem>(self, (PlayerCarryableItem)self.grasps[grasp].grabbed));
-        };
-        On.Player.Regurgitate += (orig, self) => {
-            orig(self);
-            self.room.IngameEvent(IngameEvent.PlayerRegurgitateObject, self.DangerPos, new Tuple<Player>(self));
-        };
-        On.Player.BiteEdibleObject += (orig, self, eu) => {
-            orig(self, eu);
-            self.room.IngameEvent(IngameEvent.PlayerBiteObject, self.DangerPos, new Tuple<Player>(self));
-        };
-        On.Player.ObjectEaten += (orig, self, edible) => {
-            orig(self, edible);
-            self.room.IngameEvent(IngameEvent.PlayerEatObject, self.DangerPos, new Tuple<Player>(self));
-        };
-        On.Weapon.HitSomething += (orig, self, result, eu) => {
-            var ret = orig(self, result, eu);
-            if (ret && result.obj is Player player) self.room.IngameEvent(IngameEvent.PlayerHit, result.collisionPoint, new Tuple<Player, Weapon, Creature>(player, self, self.thrownBy));
-            return ret;
-        };
-        On.Player.Jump += (orig, self) => {
-            orig(self);
-            self.room.IngameEvent(IngameEvent.PlayerJump, self.DangerPos);
-        };
-        On.Player.GrabUpdate += (orig, self, eu) => {
-            orig(self, eu);
-            self.timeWithoutRobot = 1337;
-            if (self.SlugCatClass == MoreSlugcatsEnums.SlugcatStatsName.Spear && Mathf.Approximately(((PlayerGraphics)self.graphicsModule).tailSpecks.spearProg, 1.0f))
-                self.room.IngameEvent(IngameEvent.SpearMake, self.DangerPos, new Tuple<Player>(self));
-            if (self.SlugCatClass == MoreSlugcatsEnums.SlugcatStatsName.Spear && ((PlayerGraphics)self.graphicsModule).tailSpecks.spearProg > 0)
-                Plugin.Logger.LogDebug(((PlayerGraphics)self.graphicsModule).tailSpecks.spearProg);
-        };
-        // TODO: IL hook arti jump
-        On.Player.SpearOnBack.SpearToBack += (orig, self, spr) => {
-            orig(self, spr);
-            self.owner.room.IngameEvent(IngameEvent.SpearPutOnBack, spr.firstChunk.pos, new Tuple<Player,Spear>(self.owner, spr));
-        };
-        On.Player.SpearOnBack.SpearToHand += (orig, self, eu) => {
-            orig(self, eu);
-            self.owner.room.IngameEvent(IngameEvent.SpearPutOnBack, self.spear.firstChunk.pos, new Tuple<Player, Spear>(self.owner, self.spear));
-        };
-        On.Player.SpitUpCraftedObject += (orig, self) => {
-            orig(self);
-            self.room.IngameEvent(IngameEvent.CraftObject, self.DangerPos, new Tuple<Player>(self));
-        };
-        On.Player.ActivateAscension += (orig, self) => {
-            orig(self);
-            self.room.IngameEvent(IngameEvent.AscensionActivate, self.DangerPos, new Tuple<Player>(self));
-        };
-        On.Player.DeactivateAscension += (orig, self) => {
-            orig(self);
-            self.room.IngameEvent(IngameEvent.AscensionDeactivate, self.DangerPos, new Tuple<Player>(self));
-        };
-        // TODO: IL hook ascending creatures
-        On.Player.Tongue.Attatch += (orig, self) => {
-            orig(self);
-            self.player.room.IngameEvent(IngameEvent.TongueAttach, self.pos, new Tuple<Player>(self.player));
-        };
-        On.Player.Tongue.Release += (orig, self) => {
-            orig(self);
-            self.player.room.IngameEvent(IngameEvent.TongueRetract, self.pos, new Tuple<Player>(self.player));
-        };
-        // TODO: IL hook ascending OracleWrappers
-        On.Explosion.ctor += (orig, self, room, sourceObject, pos, time, rad, force, damage, stun, deafen, holder, factor, minStun, noise) => {
-            orig(self, room, sourceObject, pos, time, rad, force, damage, stun, deafen, holder, factor, minStun, noise);
-            room.IngameEvent(IngameEvent.Explosion, self.pos, new Tuple<Explosion>(self));
-        };
-        On.Room.InGameNoise += (orig, self, noise) => {
-            orig(self, noise);
-            self.IngameEvent(IngameEvent.Noise, noise.pos, new Tuple<InGameNoise>(noise));
-        };
-        On.Room.Update += (orig, self) => {
-            orig(self);
-            var cycle = self.game.world.rainCycle;
-            if (cycle.timer == cycle.cycleLength - 800) self.IngameEvent(IngameEvent.CycleEndSoon, Vector2.zero);
-            if (cycle.timer == cycle.cycleLength) self.IngameEvent(IngameEvent.CycleEnd, Vector2.zero);
-            if (cycle.preTimer == 1) self.IngameEvent(IngameEvent.PrecycleEnd, Vector2.zero);
-            if (cycle.dayNightCounter == 2640) self.IngameEvent(IngameEvent.NightStart, Vector2.zero);
-        };
-        On.MoreSlugcats.SingularityBomb.Thrown += (orig, self, by, pos, fromPos, dir, frc, eu) => {
-            orig(self, by, pos, fromPos, dir, frc, eu);
-            self.room.IngameEvent(IngameEvent.SingularityBombThrown, self.thrownPos, new Tuple<Creature, SingularityBomb>(by, self));
-        };
-        
-        #endregion
-        // evil hooks don't interact
-        IL.Oracle.OracleArm.Joint.Update += IL_Joint_Update;
-        IL.OracleGraphics.Gown.InitiateSprite += IL_Gown_InitiateSprite;
+        try {
+            On.SaveState.LoadGame += On_SaveState_LoadGame;
+            On.SaveState.SaveToString += On_SaveState_SaveToString;
+            On.OracleGraphics.SkinColor += On_OracleGraphics_SkinColor;
+            On.OracleGraphics.Gown.Color += On_Gown_Color;
+            On.OracleGraphics.ApplyPalette += On_OracleGraphics_ApplyPalette;
+            On.OracleGraphics.Update += On_OracleGraphics_Update;
+            On.Oracle.SetUpSwarmers += On_Oracle_SetUpSwarmers;
+            On.OracleGraphics.UbilicalCord.SetStuckSegments += On_UbilicalCord_SetStuckSegments;
+            On.OracleGraphics.Halo.Update += On_Halo_Update;
+            On.OracleGraphics.DrawSprites += On_OracleGraphics_DrawSprites;
+            #region IngameEvent
+            On.Player.Die += (orig, self) => {
+                orig(self);
+                self.room.IngameEvent(IngameEvent.PlayerDied, self.DangerPos, new Tuple<Player>(self));
+            };
+            On.Player.SlugcatGrab += (orig, self, o, used) => {
+                orig(self, o, used);
+                self.room.IngameEvent(IngameEvent.PlayerGrabObject, self.DangerPos, new Tuple<Player, PhysicalObject>(self, o));
+            };
+            On.Player.ReleaseObject += (orig, self, grasp, eu) => {
+                self.room.IngameEvent(IngameEvent.PlayerReleaseObject, self.DangerPos, new Tuple<Player, PhysicalObject>(self, self.grasps[grasp].grabbed));
+                orig(self, grasp, eu);
+            };
+            On.Player.ThrowObject += (orig, self, grasp, eu) => {
+                self.room.IngameEvent(IngameEvent.PlayerThrowObject, self.DangerPos, new Tuple<Player, PhysicalObject>(self, self.grasps[grasp].grabbed));
+                orig(self, grasp, eu);
+            };
+            On.Player.SwallowObject += (orig, self, grasp) => {
+                orig(self, grasp);
+                self.room.IngameEvent(IngameEvent.PlayerSwallowObject, self.DangerPos, new Tuple<Player, PhysicalObject>(self, self.grasps[grasp].grabbed));
+            };
+            On.Player.Regurgitate += (orig, self) => {
+                orig(self);
+                self.room.IngameEvent(IngameEvent.PlayerRegurgitateObject, self.DangerPos, new Tuple<Player>(self));
+            };
+            On.Player.BiteEdibleObject += (orig, self, eu) => {
+                orig(self, eu);
+                self.room.IngameEvent(IngameEvent.PlayerBiteObject, self.DangerPos, new Tuple<Player>(self));
+            };
+            On.Player.ObjectEaten += (orig, self, edible) => {
+                orig(self, edible);
+                self.room.IngameEvent(IngameEvent.PlayerEatObject, self.DangerPos, new Tuple<Player>(self));
+            };
+            On.Weapon.HitSomething += (orig, self, result, eu) => {
+                var ret = orig(self, result, eu);
+                if (ret && result.obj is Player player) self.room.IngameEvent(IngameEvent.PlayerHit, result.collisionPoint, new Tuple<Player, Weapon, Creature>(player, self, self.thrownBy));
+                return ret;
+            };
+            On.Player.Jump += (orig, self) => {
+                orig(self);
+                self.room.IngameEvent(IngameEvent.PlayerJump, self.DangerPos);
+            };
+            On.PlayerGraphics.TailSpeckles.setSpearProgress += (orig, self, f) => {
+                orig(self, f);
+                if (Mathf.Approximately(f, 1.0f)) self.pGraphics.owner.room.IngameEvent(IngameEvent.SpearMake, self.pGraphics.player.DangerPos, new Tuple<Player>(self.pGraphics.player));
+            };
+            // TODO: IL hook arti jump
+            IL.Player.ClassMechanicsArtificer += IL_Player_ClassMechanicsArtificer;
+            On.Player.SpearOnBack.SpearToBack += (orig, self, spr) => {
+                orig(self, spr);
+                self.owner.room.IngameEvent(IngameEvent.SpearPutOnBack, spr.firstChunk.pos, new Tuple<Player, Spear>(self.owner, spr));
+            };
+            On.Player.SpearOnBack.SpearToHand += (orig, self, eu) => {
+                orig(self, eu);
+                self.owner.room.IngameEvent(IngameEvent.SpearPutOnBack, self.spear.firstChunk.pos, new Tuple<Player, Spear>(self.owner, self.spear));
+            };
+            On.Player.SpitUpCraftedObject += (orig, self) => {
+                orig(self);
+                self.room.IngameEvent(IngameEvent.CraftObject, self.DangerPos, new Tuple<Player>(self));
+            };
+            On.Player.ActivateAscension += (orig, self) => {
+                orig(self);
+                self.room.IngameEvent(IngameEvent.AscensionActivate, self.DangerPos, new Tuple<Player>(self));
+            };
+            On.Player.DeactivateAscension += (orig, self) => {
+                orig(self);
+                self.room.IngameEvent(IngameEvent.AscensionDeactivate, self.DangerPos, new Tuple<Player>(self));
+            };
+            IL.Player.ClassMechanicsSaint += IL_Player_ClassMechanicsSaint;
+            On.Player.Tongue.AttachToTerrain += (orig, self, pos) => {
+                orig(self, pos);
+                self.player.room.IngameEvent(IngameEvent.TongueAttach, pos, new Tuple<Player, bool>(self.player, false));
+            };
+            On.Player.Tongue.AttachToChunk += (orig, self, chunk) => {
+                orig(self, chunk);
+                self.player.room.IngameEvent(IngameEvent.TongueAttach, chunk.pos, new Tuple<Player, bool>(self.player, true));
+            };
+            On.Player.Tongue.Release += (orig, self) => {
+                orig(self);
+                self.player.room.IngameEvent(IngameEvent.TongueRetract, self.pos, new Tuple<Player>(self.player));
+            };
+            On.Explosion.ctor += (orig, self, room, sourceObject, pos, time, rad, force, damage, stun, deafen, holder, factor, minStun, noise) => {
+                orig(self, room, sourceObject, pos, time, rad, force, damage, stun, deafen, holder, factor, minStun, noise);
+                room.IngameEvent(IngameEvent.Explosion, self.pos, new Tuple<Explosion>(self));
+            };
+            On.Room.InGameNoise += (orig, self, noise) => {
+                orig(self, noise);
+                self.IngameEvent(IngameEvent.Noise, noise.pos, new Tuple<InGameNoise>(noise));
+            };
+            On.Room.Update += (orig, self) => {
+                orig(self);
+                var cycle = self.game.world.rainCycle;
+                if (cycle.timer == cycle.cycleLength - 800) self.IngameEvent(IngameEvent.CycleEndSoon, Vector2.zero);
+                if (cycle.timer == cycle.cycleLength) self.IngameEvent(IngameEvent.CycleEnd, Vector2.zero);
+                if (cycle.preTimer == 1) self.IngameEvent(IngameEvent.PrecycleEnd, Vector2.zero);
+                if (cycle.dayNightCounter == 2640) self.IngameEvent(IngameEvent.NightStart, Vector2.zero);
+            };
+            On.MoreSlugcats.SingularityBomb.Thrown += (orig, self, by, pos, fromPos, dir, frc, eu) => {
+                orig(self, by, pos, fromPos, dir, frc, eu);
+                self.room.IngameEvent(IngameEvent.SingularityBombThrown, self.thrownPos, new Tuple<Creature, SingularityBomb>(by, self));
+            };
+
+            #endregion
+            // evil hooks don't interact
+            IL.Oracle.OracleArm.Joint.Update += IL_Joint_Update;
+            IL.OracleGraphics.Gown.InitiateSprite += IL_Gown_InitiateSprite;
+            IL.OracleGraphics.ctor += IL_OracleGraphics_ctor;
+            IL.OracleGraphics.InitiateSprites += IL_OracleGraphics_InitiateSprites;
+        }
+        catch (Exception e) {
+            Plugin.Logger.LogError("Shit has hit the fan");
+            Plugin.Logger.LogError(e);
+        }
+    }
+    // this was originally an On hook until i needed to add the forehead sprite and you apparently CANNOT run the code strictly before or after the original code if you want new sprites. 
+    private static void IL_OracleGraphics_InitiateSprites(ILContext il) {
+        try {
+            Plugin.Logger.LogInfo("ILn't hooking OracleGraphics.InitiateSprites");
+            ILCursor c = new ILCursor(il);
+            c.GotoNext(MoveType.Before, x => x.MatchCallvirt(typeof(GraphicsModule).GetMethod(nameof(GraphicsModule.AddToContainer))));
+            c.GotoNext(MoveType.Before, x => x.MatchLdarg(0));
+            for (int i = 0; i < 3; i++) c.Emit(OpCodes.Ldarg, i);
+            c.EmitDelegate(On_OracleGraphics_InitiateSprites);
+            Plugin.Logger.LogInfo("Yay");
+        } catch (Exception e) {
+            Plugin.Logger.LogError("FAIL");
+            Plugin.Logger.LogError(e);
+        }
+    }
+    private static void IL_OracleGraphics_ctor(ILContext il) {
+        try {
+            Plugin.Logger.LogInfo("IL hooking OracleGraphics.ctor");
+            ILCursor c = new ILCursor(il);
+            c.GotoNext(MoveType.After, x => x.MatchCall(
+                typeof(OracleGraphics).GetMethod("get_IsMoon")));
+            c.Emit(OpCodes.Ldarg_0);
+            c.EmitDelegate((bool isMoon, OracleGraphics self) => {
+                bool ejeje = isMoon || self.oracle is OracleWrapper wrapper && wrapper.PData.DisconnectedCord;
+                Plugin.Logger.LogDebug("checking if has broken cord: " + ejeje);
+                return ejeje;
+            });
+            /*
+            for (int i = 0; i < 3; i++)
+                c.GotoNext(MoveType.After, x => x.MatchCall(
+                    typeof(OracleGraphics).GetMethod("get_IsMoon")));
+            c.Emit(OpCodes.Ldarg_0);
+            c.EmitDelegate((bool isMoon, OracleGraphics self) => {
+                bool ejeje = isMoon || self.oracle is OracleWrapper { ThirdEyeSprite: not null };
+                Plugin.Logger.LogDebug("checking if has 3rd eye: " + ejeje);
+                return ejeje;
+            });*/
+            Plugin.Logger.LogInfo("Yay");
+        } catch (Exception e) {
+            Plugin.Logger.LogError("FAIL");
+            Plugin.Logger.LogError(e);
+        }
+    }
+    private static void On_OracleGraphics_DrawSprites(On.OracleGraphics.orig_DrawSprites orig, OracleGraphics self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, float timeStacker, Vector2 camPos) {
+        orig(self, sLeaser, rCam, timeStacker, camPos);
+        if (self.oracle is not OracleWrapper wrapper || wrapper.ThirdEyeSprite == null) return;
+        Vector2 vector2_1 = Vector2.Lerp(self.owner.firstChunk.lastPos, self.owner.firstChunk.pos, timeStacker);
+        Vector2 vector2_4 = Vector2.Lerp(self.head.lastPos, self.head.pos, timeStacker);
+        Vector2 v2 = Custom.DirVec(vector2_4, vector2_1);
+        Vector2 vector2_5 = Custom.PerpendicularVector(v2);
+        Vector2 vector2_6 = self.RelativeLookDir(timeStacker);
+        Vector2 p1 = vector2_4 + vector2_5 * (vector2_6.x * 2.5f) + v2 * (float) (-2.0 - vector2_6.y * 1.5);
+        sLeaser.sprites[self.MoonThirdEyeSprite].x = p1.x - camPos.x;
+        sLeaser.sprites[self.MoonThirdEyeSprite].y = p1.y - camPos.y;
+        sLeaser.sprites[self.MoonThirdEyeSprite].rotation = Custom.AimFromOneVectorToAnother(p1, vector2_4 - v2 * 10f);
+        sLeaser.sprites[self.MoonThirdEyeSprite].scaleX = Mathf.Lerp(wrapper.ThirdEyeScale, wrapper.ThirdEyeScale*0.75f, Mathf.Abs(vector2_6.x));
+        sLeaser.sprites[self.MoonThirdEyeSprite].scaleY = Custom.LerpMap(vector2_6.y, 0.0f, 1f, wrapper.ThirdEyeScale, wrapper.ThirdEyeScale*0.25f);
+    }
+    private static void IL_Player_ClassMechanicsArtificer(ILContext il) {
+        try {
+            Plugin.Logger.LogInfo("IL hooking Player.ClassMechanicsArtificer");
+            ILCursor c = new ILCursor(il);
+            c.GotoNext(MoveType.After, x => x.MatchNewobj<Explosion.ExplosionLight>());
+            c.GotoNext(MoveType.After, x => x.MatchCallvirt(typeof(Room).GetMethod(nameof(Room.AddObject))));
+            c.Emit(OpCodes.Ldarg_0);
+            c.EmitDelegate((Player self) => {
+                self.room.IngameEvent(IngameEvent.BombJump, self.firstChunk.pos);
+            });
+            Plugin.Logger.LogInfo("Yay");
+        } catch (Exception e) {
+            Plugin.Logger.LogError("FAIL");
+            Plugin.Logger.LogError(e);
+        }
+    }
+    public class PobjData {
+        public bool ascended = false;
+    }
+    public static readonly ConditionalWeakTable<PhysicalObject, PobjData> pobjCWT = new();
+    public static bool TryGetData(PhysicalObject key, out PobjData data) {
+        data = key != null ? pobjCWT.GetOrCreateValue(key) : null;
+        return data != null;
+    }
+    private static void IL_Player_ClassMechanicsSaint(ILContext il) {
+        try {
+            Plugin.Logger.LogInfo("IL hooking Player.ClassMechanicsSaint");
+            ILCursor c = new ILCursor(il);
+            c.GotoNext(MoveType.After, x => x.MatchIsinst<Creature>());
+            int physicalObject = 0;
+            c.GotoPrev(MoveType.Before, x => x.MatchLdloc(out physicalObject));
+            c.Emit(OpCodes.Ldarg_0);
+            c.Emit(OpCodes.Ldloc, physicalObject);
+            c.EmitDelegate((Player self, PhysicalObject obj) => {
+                if (!TryGetData(obj, out PobjData data) || data.ascended) return;
+                Plugin.Logger.LogDebug($"Tried to ascend {obj.GetType().Name}");
+                data.ascended = true;
+                switch (obj) {
+                    case Creature creature:
+                        self.room.IngameEvent(IngameEvent.CreatureAscended, creature.firstChunk.pos, new Tuple<Player, Creature>(self, creature));
+                        break;
+                    case Oracle oracle:
+                        self.room.IngameEvent(IngameEvent.OracleAscended, oracle.firstChunk.pos, new Tuple<Player, Oracle>(self, oracle));
+                        break;
+                }
+            });
+            c.GotoNext(MoveType.After, x => x.MatchIsinst<STOracleBehavior>());
+            c.GotoNext(MoveType.After, x => x.MatchBlt(out _));
+            c.Emit(OpCodes.Ldloc, physicalObject);
+            c.EmitDelegate((PhysicalObject obj) => {
+                if (!TryGetData(obj, out PobjData data) || !data.ascended) return;
+                data.ascended = false;
+            });
+            Plugin.Logger.LogInfo("Yay");
+        } catch (Exception e) {
+            Plugin.Logger.LogError("FAIL");
+            Plugin.Logger.LogError(e);
+        }
     }
 
     private static void IL_Gown_InitiateSprite(ILContext il) {
         try {
+            Plugin.Logger.LogInfo("IL hooking Gown.InitiateSprite");
             ILCursor c = new ILCursor(il);
             ILLabel labele = null;
             c.GotoNext(MoveType.After, x => x.MatchBrtrue(out labele));
             c.Emit(OpCodes.Ldarg, 0);
             c.EmitDelegate((OracleGraphics.Gown gown) => gown.owner.owner is OracleWrapper wrapper && wrapper.PData.Broken);
             c.Emit(OpCodes.Brtrue, labele);
-            Plugin.Logger.LogInfo("Successfully IL hooked Gown.InitiateSprite");
+            Plugin.Logger.LogInfo("Yay");
         } catch (Exception e) {
-            Plugin.Logger.LogError("FAILED TO IL HOOK Gown.InitiateSprite");
+            Plugin.Logger.LogError("FAIL");
             Plugin.Logger.LogError(e);
         }
     }
@@ -157,16 +291,16 @@ public class Hooks {
         On.SaveState.SaveToString -= On_SaveState_SaveToString;
         On.OracleGraphics.SkinColor -= On_OracleGraphics_SkinColor;
         On.OracleGraphics.Gown.Color -= On_Gown_Color;
-        On.OracleGraphics.InitiateSprites -= On_OracleGraphics_InitiateSprites;
         On.OracleGraphics.ApplyPalette -= On_OracleGraphics_ApplyPalette;
         On.OracleGraphics.Update -= On_OracleGraphics_Update;
-        //On.Oracle.ctor -= On_Oracle_ctor;
-        IL.Oracle.OracleArm.Joint.Update -= IL_Joint_Update;
-        //IL.Oracle.OracleArm.Update -= IL_OracleArm_Update;
+        On.OracleGraphics.DrawSprites -= On_OracleGraphics_DrawSprites;
         On.Oracle.SetUpSwarmers -= On_Oracle_SetUpSwarmers;
         On.OracleGraphics.UbilicalCord.SetStuckSegments -= On_UbilicalCord_SetStuckSegments;
         On.OracleGraphics.Halo.Update -= On_Halo_Update;
+        IL.Oracle.OracleArm.Joint.Update -= IL_Joint_Update;
         IL.OracleGraphics.Gown.InitiateSprite -= IL_Gown_InitiateSprite;
+        IL.OracleGraphics.ctor -= IL_OracleGraphics_ctor;
+        IL.OracleGraphics.InitiateSprites -= IL_OracleGraphics_InitiateSprites;
     }
     private static void On_Oracle_SetUpSwarmers(On.Oracle.orig_SetUpSwarmers orig, Oracle self) {
         if (self is OracleWrapper) return;
@@ -187,15 +321,6 @@ public class Hooks {
             ilCursor.Emit(OpCodes.Ldarg_0).EmitDelegate((Func<bool, Oracle.OracleArm.Joint, bool>) ((flag, self) => flag || self.arm is OracleWrapper.Arm));
         else
             Plugin.Logger.LogError("Couldn't ILHook Oracle.OracleArm.Joint.Update!");
-    }
-    private static void IL_OracleArm_Update(ILContext il) {
-        ILCursor ilCursor = new ILCursor(il);
-        for (int index = 1; index <= 3; ++index) {
-            if (ilCursor.TryGotoNext(MoveType.After, x => x.MatchLdsfld<Oracle.OracleID>("SS"), x => x.MatchCall(out MethodReference _)))
-                ilCursor.Emit(OpCodes.Ldarg_0).EmitDelegate((Func<bool, Oracle.OracleArm, bool>) ((flag, self) => flag || self is OracleWrapper.Arm));
-            else
-                Plugin.Logger.LogError($"Couldn't ILHook Oracle.OracleArm.Update (part {index})!");
-        }
     }
 
     private static void On_Oracle_ctor(On.Oracle.orig_ctor orig, Oracle self, AbstractPhysicalObject abstractPhysicalObject, Room room) {
@@ -249,13 +374,17 @@ public class Hooks {
         }
     }
 
-    private static void On_OracleGraphics_InitiateSprites(On.OracleGraphics.orig_InitiateSprites orig, OracleGraphics self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam) {
-        orig(self, sLeaser, rCam);
-        if (self.owner is not OracleWrapper wrapper) return;
-        for (int i = 0; i < 2; i++) sLeaser.sprites[self.EyeSprite(i)].color = wrapper.EyeColor;
-        if (wrapper.ThirdEyeSprite != null) sLeaser.sprites[self.MoonThirdEyeSprite] = new FSprite(wrapper.ThirdEyeSprite);
-        sLeaser.sprites[self.fadeSprite].color = wrapper.LightColor;
-        sLeaser.sprites[self.fadeSprite].alpha = wrapper.LightAlpha;
+    private static void On_OracleGraphics_InitiateSprites(OracleGraphics self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam) {
+        if (self.owner is OracleWrapper wrapper) {
+            for (int i = 0; i < 2; i++) sLeaser.sprites[self.EyeSprite(i)].color = wrapper.EyeColor;
+            if (wrapper.ThirdEyeSprite != null && false) {
+                sLeaser.sprites[self.MoonThirdEyeSprite] = new FSprite(wrapper.ThirdEyeSprite) {
+                    color = wrapper.ThirdEyeColor
+                };
+            }
+            sLeaser.sprites[self.fadeSprite].color = wrapper.LightColor;
+            sLeaser.sprites[self.fadeSprite].alpha = wrapper.LightAlpha;
+        }
     }
 
     private static Color On_Gown_Color(On.OracleGraphics.Gown.orig_Color orig, OracleGraphics.Gown self, float f) =>
@@ -268,7 +397,7 @@ public class Hooks {
 
     private static string On_SaveState_SaveToString(On.SaveState.orig_SaveToString orig, SaveState self) {
         string output = orig(self);
-        Plugin.Logger.LogInfo("Saving oracle memories...");
+        Plugin.Logger.LogInfo($"Saving oracle memories for save file {self.currentTimelinePosition.value}...");
         List<string> notFound = [];
         foreach (var memoryField in Plugin.MemoryFields) {
             try {
@@ -303,14 +432,14 @@ public class Hooks {
                 }
 
                 string innerJson = JsonConvert.SerializeObject(field.GetValue(null));
-                data[memoryField] = innerJson;
+                memoryData[memoryField] = innerJson;
                 Plugin.Logger.LogDebug(memoryField);
             } catch (Exception e) {
                 Plugin.Logger.LogError($"FAILED TO SAVE MEMORY FIELD: {memoryField}");
                 Plugin.Logger.LogError(e);
             }
         }
-        string json = JsonConvert.SerializeObject(data);
+        string json = JsonConvert.SerializeObject(memoryData);
         Plugin.Logger.LogInfo(json);
         string stuff = $"ORACLEMEMORY<svB>{json}";
         string[] spli2 = Regex.Split(output, "<svA>");
@@ -336,20 +465,19 @@ public class Hooks {
         return null;
     }
 
-    private static Dictionary<string, string> data = [];
+    private static Dictionary<string, string> memoryData = [];
     
     private static void On_SaveState_LoadGame(On.SaveState.orig_LoadGame orig, SaveState self, string str, RainWorldGame game) {
         orig(self, str, game);
         string[] split = Regex.Split(str, "<svA>");
         string jajajaja = split.FirstOrDefault(x => x.StartsWith("ORACLEMEMORY"));
         if (jajajaja == null) return;
-        Plugin.Logger.LogInfo("Loading oracle memories...");
-        Plugin.Logger.LogInfo(jajajaja);
+        Plugin.Logger.LogInfo($"Loading oracle memories for save file {self.currentTimelinePosition.value}...");
         string json = Regex.Split(jajajaja, "<svB>")[1];
         Plugin.Logger.LogInfo(json);
-        data = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+        memoryData = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
         List<string> notFound = [];
-        foreach (var pair in data) {
+        foreach (var pair in memoryData) {
             Plugin.Logger.LogInfo($"{pair.Key}: {pair.Value}");
             try {
                 string[] spli2 = pair.Key.Split(':');

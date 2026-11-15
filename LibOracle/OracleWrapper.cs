@@ -12,7 +12,6 @@ using Random = UnityEngine.Random;
 namespace LibOracle;
 
 public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
-    public readonly OracleID WrappedOracle = new("WrappedOracle", true);
     public Vector2 Center => new((ArmArea.left + ArmArea.right) / 2f, (ArmArea.bottom + ArmArea.top) / 2f);
     public Vector2 BottomCenter => new(Center.x, ArmArea.bottom);
     public Data PData => (Data)PObject.data;
@@ -54,24 +53,25 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
                 continue;
             }
             if (field.DeclaringType is null) {
-                Plugin.Logger.LogWarning($"Unable to find declaring type for {field.Name}! I'm right here. Did a cosmic ray hit your computer?");
+                Plugin.Logger.LogWarning($"Unable to find declaring type for {field.Name}??? I'm right here. Did a cosmic ray hit your computer?");
                 continue;
             }
             string id = $"{field.DeclaringType.Assembly.GetName().Name}:{field.DeclaringType.Namespace}.{field.DeclaringType.Name}:{field.Name}";
             if (!Plugin.MemoryFields.Contains(id)) Plugin.MemoryFields.Add(id);
         }
-        ID = WrappedOracle;
         for (int index = 0; index < bodyChunks.Length; ++index) {
             bodyChunks[index] = new BodyChunk(this, index, Center, 6f, 0.5f);
         } for (int index = 0; index < bodyChunkConnections.Length; ++index)
             bodyChunkConnections[index] = new BodyChunkConnection(bodyChunks[index], bodyChunks[index + 1], 9f, BodyChunkConnection.Type.Normal, 1f, 0.5f);
         Plugin.Logger.LogDebug(Center);
+        
         lastPos = Center;
         LookPos = Center;
         mySwarmers?.Clear();
         State = new(this) {
             Id = OracleState.ID.Idle
         };
+        ID = new OracleID("Wrapper", true);
     }
     internal bool Crashed;
     public override void HitByExplosion(float hitFac, Explosion explosion, int hitChunk) {
@@ -96,6 +96,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public float LightAlpha { get; set; } = 0.5f;
     [CanBeNull] public string ThirdEyeSprite { get; set; } = null;
     public Color ThirdEyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
+    public float ThirdEyeScale { get; set; } = 1f;
     public float CrawlSpeed { get; set; }
     public OracleState State { get; set; }
     public Vector2 LookPos { get; set; }
@@ -118,16 +119,24 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public float Angle { get; set; }
     private Vector2 baseIdeal;
     private Behavior behavior;
-    ConversationWrapper Conversation;
+    Conversation Conversation;
     public bool Conscious { get; set; } = true;
     public new bool Consious => Conscious;
-    protected virtual void ConversationEvents(ConversationWrapper convo) {}
-
+    protected virtual void ConversationEvents(ConversationWrapper convo) { }
 
     public SaveState SaveState => ((StoryGameSession)room.game.session).saveState;
-    public void Say(string line, int extraLinger = 0) {
-        if (SaveState.deathPersistentSaveData.theMark || SaveState.saveStateNumber == MoreSlugcatsEnums.SlugcatStatsName.Saint) DialogBox.NewMessage(line, extraLinger);
-        else room.PlaySound(Random.Range(0, 5) switch {
+    public void Say(string line, int extraLinger = 0, bool interrupt = false) {
+        if (SaveState.deathPersistentSaveData.theMark || SaveState.saveStateNumber == MoreSlugcatsEnums.SlugcatStatsName.Saint) {
+            if (interrupt) {
+                DialogBox.Interrupt(line, extraLinger);
+            } else {
+                DialogBox.NewMessage(line, extraLinger);
+            }
+        }
+        else Voice();
+    }
+    public virtual void Voice(int? line = null) {
+        room.PlaySound((line ?? Random.Range(0, 5)) switch {
             1 => SoundID.SS_AI_Talk_2,
             2 => SoundID.SS_AI_Talk_3,
             3 => SoundID.SS_AI_Talk_4,
@@ -136,6 +145,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         }, firstChunk);
     }
     public void StartConversation(Conversation.ID id) {
+        Plugin.Logger.LogDebug("Starting convo: " + id.value);
         Conversation?.Destroy();
         Conversation = new ConversationWrapper(this, id, DialogBox) {
             colorMode = ModManager.MSC
@@ -177,7 +187,21 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         }
     }
     private BlackScreenOfDeath bsod;
-    
+    protected virtual void Move() {
+        currentGetTo = Custom.Bezier(lastPos, ClampVectorInRoom(lastPos + lastPosHandle), nextPos,
+            ClampVectorInRoom(nextPos + nextPosHandle), pathProgression);
+        pathProgression = Mathf.Min(1f, pathProgression + 1f / Mathf.Lerp((float)(40.0 + pathProgression * 80.0),
+            Vector2.Distance(lastPos, nextPos) / 5f, 0.5f));
+        behavior.consistentBasePosCounter++;
+        if (room.readyForAI && !PData.Broken) {
+            Vector2 vector2 = new Vector2(Random.value * room.PixelWidth, Random.value * room.PixelHeight);
+            if (!(room.GetTile(vector2).Solid || BasePosScore(vector2) + 40.0 >= BasePosScore(baseIdeal))) {
+                baseIdeal = vector2;
+                behavior.consistentBasePosCounter = 0;
+            }
+        }
+        else baseIdeal = baseIdeal = PData.BrokenArmBasePos + PObject.pos;
+    }
     public override void Update(bool eu) {
         if (Player == null && room.game.AlivePlayers.Count > 0)
             Player = room.game.FirstAlivePlayer.realizedCreature as Player;
@@ -192,25 +216,10 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         }
         // Movement
         try {
-            currentGetTo = Custom.Bezier(lastPos, ClampVectorInRoom(lastPos + lastPosHandle), nextPos,
-                ClampVectorInRoom(nextPos + nextPosHandle), pathProgression);
-            pathProgression = Mathf.Min(1f, pathProgression + 1f / Mathf.Lerp((float)(40.0 + pathProgression * 80.0),
-                Vector2.Distance(lastPos, nextPos) / 5f, 0.5f));
-            behavior.consistentBasePosCounter++;
-            if (room.readyForAI && !PData.Broken) {
-                Vector2 vector2 = new Vector2(Random.value * room.PixelWidth, Random.value * room.PixelHeight);
-                if (!(room.GetTile(vector2).Solid || BasePosScore(vector2) + 40.0 >= BasePosScore(baseIdeal))) {
-                    baseIdeal = vector2;
-                    behavior.consistentBasePosCounter = 0;
-                }
-            }
-            else baseIdeal = baseIdeal = PData.BrokenArmBasePos + PObject.pos;
-
-
+            Move();
             try {
                 Update();
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 bsod = new(new Vector2(240f, 580f), this, e, false);
                 Plugin.Logger.LogError($"ERROR IN {GetType().Name} UPDATE()");
                 Plugin.Logger.LogError(e.ToString());
@@ -238,7 +247,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
             Angle = 0f;
         }
     }
-    protected virtual float BasePosScore(Vector2 tryPos) => Mathf.Abs(Vector2.Distance(nextPos, tryPos) - 200f) + Custom.LerpMap(Vector2.Distance(Player.DangerPos, tryPos), 40f, 300f, 800f, 0.0f);
+    protected virtual float BasePosScore(Vector2 tryPos) => Mathf.Abs(Vector2.Distance(nextPos, tryPos) - 200f) + (Player == null ? 0 : Custom.LerpMap(Vector2.Distance(Player.DangerPos, tryPos), 40f, 300f, 800f, 0.0f));
     
     protected virtual Vector2 ClampVectorInRoom(Vector2 v) {
         Vector2 vector2 = v;
@@ -255,18 +264,23 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         Pom.Pom.RegisterManagedObject<TOracle, TData, Pom.Pom.ManagedRepresentation>(typeof(TOracle).Name, category);
     }
     #region Subclasses
-    protected class ConversationWrapper(Conversation.IOwnAConversation owner, Conversation.ID id, DialogBox box) : Conversation(owner, id, box) {
-        protected OracleWrapper oracle => (OracleWrapper)interfaceOwner;
-        public override void AddEvents() => oracle.ConversationEvents(this);
-        public void LoadEventsFromFile(string filename) {
-            
+    protected class ConversationWrapper : Conversation {
+        public ConversationWrapper(IOwnAConversation owner, ID id, DialogBox box) : base(owner, id, box) {
+            oracle.ConversationEvents(this);
         }
+        protected OracleWrapper oracle => (OracleWrapper)interfaceOwner;
+        public void AddTextEvent(string text, int initialWait = 0, int extraLinger = 0) => events.Add(new TextEvent(this, initialWait, text, extraLinger));
+        public void AddSpecialEvent(string eventName, int initialWait = 0) => events.Add(new SpecialEvent(this, initialWait, eventName));
+        public void AddWaitEvent(int initialWait) => events.Add(new WaitEvent(this, initialWait));
+        public void LoadEventsFromFile(string fileName, bool oneRandomLine = false, int randomSeed = 0) => ModIntegrations.CrsIntegration.LoadEventsFromFile(this, fileName, oracle.SaveState.saveStateNumber, oneRandomLine, randomSeed);
     }
     public class Data(PlacedObject obj) : Pom.Pom.ManagedData(obj, null) {
         [Pom.Pom.IntVector2Field("armArea", 28, 28, Pom.Pom.IntVector2Field.IntVectorReprType.rect)]
         public IntVector2 ArmArea;
         [Pom.Pom.BooleanField("broken", false, displayName: "Broken")]
         public bool Broken;
+        [Pom.Pom.BooleanField("disconnectedCord", false, displayName: "Disconnected cord")]
+        public bool DisconnectedCord;
         [Pom.Pom.Vector2Field("brokenArmBasePos", 280f, 0f, Pom.Pom.Vector2Field.VectorReprType.none, "Broken arm base pos")]
         public Vector2 BrokenArmBasePos;
     }
