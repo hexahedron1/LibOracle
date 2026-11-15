@@ -1,6 +1,4 @@
 using System;
-using System.CodeDom;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using HUD;
 using JetBrains.Annotations;
@@ -74,6 +72,8 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         ID = new OracleID("Wrapper", true);
     }
     internal bool Crashed;
+    //protected void SetPearlCollectionStatus(DataPearl.AbstractDataPearl.DataPearlType type, bool discussed) => Plugin.PearlCollectionData[type][ID] = discussed;
+    
     public override void HitByExplosion(float hitFac, Explosion explosion, int hitChunk) {
         base.HitByExplosion(hitFac, explosion, hitChunk);
         Vector2 dir = (bodyChunks[hitChunk].pos - explosion.pos).normalized;
@@ -93,15 +93,18 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public Color RobeFadeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
     public Color EyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
     public Color LightColor { get; set; } = new(1f, 1f, 1f);
+    public static string CollectionIcon { get; set; } = "GuidancePebbles";
+    public static Color CollectionColor { get; set; } = new(1f, 1f, 1f);
     public float LightAlpha { get; set; } = 0.5f;
-    [CanBeNull] public string ThirdEyeSprite { get; set; } = null;
-    public Color ThirdEyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
-    public float ThirdEyeScale { get; set; } = 1f;
+    // TODO: implement these
+    //[CanBeNull] public string ThirdEyeSprite { get; set; } = null;
+    //public Color ThirdEyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
+    //public float ThirdEyeScale { get; set; } = 1f;
     public float CrawlSpeed { get; set; }
-    public OracleState State { get; set; }
-    public Vector2 LookPos { get; set; }
     public bool InSitPosition { get; set; }
     public bool HoldKnees { get; set; }
+    public OracleState State { get; set; }
+    public Vector2 LookPos { get; set; }
     public bool EyesOpen { get; set; } = true;
     public readonly Vector2?[] HandDirections = new Vector2?[2];
     #endregion Properties
@@ -109,7 +112,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public new virtual void SetUpMarbles() { }
     public static bool IsPlayerInEntrance(Player player) => player.bodyMode == Player.BodyModeIndex.CorridorClimb;
     public virtual void StateSwitch(OracleState.ID newState) { }
-
+    public new virtual void GlowerEaten() {}
     protected Vector2 nextPos;
     protected Vector2 lastPos;
     protected Vector2 currentGetTo;
@@ -214,8 +217,12 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
             EyesOpen = false;
             return;
         }
-        // Movement
         try {
+            if (graphicsModule != null && !((OracleGraphics)graphicsModule).initiated) {
+                ((OracleGraphics)graphicsModule).initiated = true;
+                for (int index = 0; index < 100; ++index)
+                    ((OracleGraphics)graphicsModule).Update();
+            }
             Move();
             try {
                 Update();
@@ -399,7 +406,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     }
     #endregion Subclasses
 }
-
+#pragma warning disable CS0660
 public class OracleState(OracleWrapper owner) {
     private ID id = ID.Idle;
     public ID Id {

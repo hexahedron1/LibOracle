@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -11,7 +10,6 @@ using MonoMod.Cil;
 using MoreSlugcats;
 using Newtonsoft.Json;
 using Noise;
-using On.Menu;
 using RWCustom;
 using UnityEngine;
 
@@ -22,14 +20,17 @@ public class Hooks {
         try {
             On.SaveState.LoadGame += On_SaveState_LoadGame;
             On.SaveState.SaveToString += On_SaveState_SaveToString;
+            //On.PlayerProgression.MiscProgressionData.ToString += On_MiscProgressionData_ToString;
+            //On.PlayerProgression.MiscProgressionData.FromString += On_MiscProgressionData_FromString;
             On.OracleGraphics.SkinColor += On_OracleGraphics_SkinColor;
             On.OracleGraphics.Gown.Color += On_Gown_Color;
-            On.OracleGraphics.ApplyPalette += On_OracleGraphics_ApplyPalette;
+            //On.OracleGraphics.ApplyPalette += On_OracleGraphics_ApplyPalette;
             On.OracleGraphics.Update += On_OracleGraphics_Update;
             On.Oracle.SetUpSwarmers += On_Oracle_SetUpSwarmers;
             On.OracleGraphics.UbilicalCord.SetStuckSegments += On_UbilicalCord_SetStuckSegments;
             On.OracleGraphics.Halo.Update += On_Halo_Update;
-            On.OracleGraphics.DrawSprites += On_OracleGraphics_DrawSprites;
+            On.Oracle.GlowerEaten += On_Oracle_GlowerEaten;
+            //On.OracleGraphics.DrawSprites += On_OracleGraphics_DrawSprites;
             #region IngameEvent
             On.Player.Die += (orig, self) => {
                 orig(self);
@@ -138,13 +139,69 @@ public class Hooks {
             IL.OracleGraphics.Gown.InitiateSprite += IL_Gown_InitiateSprite;
             IL.OracleGraphics.ctor += IL_OracleGraphics_ctor;
             IL.OracleGraphics.InitiateSprites += IL_OracleGraphics_InitiateSprites;
+            IL.Oracle.Update += IL_Oracle_Update;
         }
         catch (Exception e) {
             Plugin.Logger.LogError("Shit has hit the fan");
             Plugin.Logger.LogError(e);
         }
     }
-    // this was originally an On hook until i needed to add the forehead sprite and you apparently CANNOT run the code strictly before or after the original code if you want new sprites. 
+    /*private static void On_MiscProgressionData_FromString(On.PlayerProgression.MiscProgressionData.orig_FromString orig, PlayerProgression.MiscProgressionData self, string s) {
+        orig(self, s);
+        string[] entries = Regex.Split(s, "<mpdA>");
+        foreach (string entry in entries) {
+            string[] comps = Regex.Split(entry, "<mpdB>");
+            if (comps[0] != "LOREWRAPPER") continue;
+            Plugin.PearlCollectionData.Clear();
+            string[] data = Regex.Split(comps[1], "<mpdC>");
+            foreach (string datum in data) {
+                string[] pearl = Regex.Split(datum, "<mpdD>");
+                var type = new DataPearl.AbstractDataPearl.DataPearlType(pearl[0]);
+                string[] oracles = Regex.Split(pearl[1], "<mpdE>");
+                Dictionary<Oracle.OracleID, bool> oracleData = [];
+                foreach (string oracle in oracles) {
+                    string[] split = Regex.Split(oracle, "<mpdF>");
+                    oracleData.Add(new Oracle.OracleID(split[0]), split[1] == "true");
+                }
+                Plugin.PearlCollectionData.Add(type, oracleData);
+            }
+        }
+    }
+    private static string On_MiscProgressionData_ToString(On.PlayerProgression.MiscProgressionData.orig_ToString orig, PlayerProgression.MiscProgressionData self) {
+        string output = orig(self);
+        string str = "LOREWRAPPER<mpdB>";
+        foreach (var pearlData in Plugin.PearlCollectionData) {
+            var lines = pearlData.Value.Select(oracleData => $"{oracleData.Key}={oracleData.Value}");
+            str += $"{pearlData.Key}::{string.Join(",", lines)};";
+        }
+        return output + str + "<mpdA>";
+    }*/
+    private static void On_Oracle_GlowerEaten(On.Oracle.orig_GlowerEaten orig, Oracle self) {
+        if (self is OracleWrapper) return;
+        orig(self);
+    }
+
+    private static void IL_Oracle_Update(ILContext il) {
+        try {
+            Plugin.Logger.LogInfo("ILn't hooking Oracle.Update");
+            ILCursor c = new ILCursor(il);
+            ILLabel label = null;
+            c.GotoNext(MoveType.After, x => x.MatchBr(out label));
+            c.GotoPrev(MoveType.After, x => x.MatchCall(typeof(PhysicalObject).GetMethod(nameof(PhysicalObject.Update))));
+            c.Emit(OpCodes.Ldarg_0);
+            c.EmitDelegate((Oracle o) => {
+                Plugin.Logger.LogInfo($"Checking if oracle is wrapper ({o is OracleWrapper})");
+                return o is OracleWrapper;
+            });
+            c.Emit(OpCodes.Brtrue, label);
+            Plugin.Logger.LogInfo("Yay");
+        } catch (Exception e) {
+            Plugin.Logger.LogError("FAIL");
+            Plugin.Logger.LogError(e);
+        }
+    }
+    // this was originally an On hook until i needed to add the third eye sprite and you apparently CANNOT run the code strictly before or after the original code if you want new sprites. 
+    // also third eye sprites are delayed after 1.0, but i am keeping this as is for the future implementation
     private static void IL_OracleGraphics_InitiateSprites(ILContext il) {
         try {
             Plugin.Logger.LogInfo("ILn't hooking OracleGraphics.InitiateSprites");
@@ -187,7 +244,7 @@ public class Hooks {
             Plugin.Logger.LogError(e);
         }
     }
-    private static void On_OracleGraphics_DrawSprites(On.OracleGraphics.orig_DrawSprites orig, OracleGraphics self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, float timeStacker, Vector2 camPos) {
+    /*private static void On_OracleGraphics_DrawSprites(On.OracleGraphics.orig_DrawSprites orig, OracleGraphics self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, float timeStacker, Vector2 camPos) {
         orig(self, sLeaser, rCam, timeStacker, camPos);
         if (self.oracle is not OracleWrapper wrapper || wrapper.ThirdEyeSprite == null) return;
         Vector2 vector2_1 = Vector2.Lerp(self.owner.firstChunk.lastPos, self.owner.firstChunk.pos, timeStacker);
@@ -201,7 +258,7 @@ public class Hooks {
         sLeaser.sprites[self.MoonThirdEyeSprite].rotation = Custom.AimFromOneVectorToAnother(p1, vector2_4 - v2 * 10f);
         sLeaser.sprites[self.MoonThirdEyeSprite].scaleX = Mathf.Lerp(wrapper.ThirdEyeScale, wrapper.ThirdEyeScale*0.75f, Mathf.Abs(vector2_6.x));
         sLeaser.sprites[self.MoonThirdEyeSprite].scaleY = Custom.LerpMap(vector2_6.y, 0.0f, 1f, wrapper.ThirdEyeScale, wrapper.ThirdEyeScale*0.25f);
-    }
+    }*/
     private static void IL_Player_ClassMechanicsArtificer(ILContext il) {
         try {
             Plugin.Logger.LogInfo("IL hooking Player.ClassMechanicsArtificer");
@@ -291,9 +348,9 @@ public class Hooks {
         On.SaveState.SaveToString -= On_SaveState_SaveToString;
         On.OracleGraphics.SkinColor -= On_OracleGraphics_SkinColor;
         On.OracleGraphics.Gown.Color -= On_Gown_Color;
-        On.OracleGraphics.ApplyPalette -= On_OracleGraphics_ApplyPalette;
+        //On.OracleGraphics.ApplyPalette -= On_OracleGraphics_ApplyPalette;
         On.OracleGraphics.Update -= On_OracleGraphics_Update;
-        On.OracleGraphics.DrawSprites -= On_OracleGraphics_DrawSprites;
+        //On.OracleGraphics.DrawSprites -= On_OracleGraphics_DrawSprites;
         On.Oracle.SetUpSwarmers -= On_Oracle_SetUpSwarmers;
         On.OracleGraphics.UbilicalCord.SetStuckSegments -= On_UbilicalCord_SetStuckSegments;
         On.OracleGraphics.Halo.Update -= On_Halo_Update;
@@ -301,6 +358,7 @@ public class Hooks {
         IL.OracleGraphics.Gown.InitiateSprite -= IL_Gown_InitiateSprite;
         IL.OracleGraphics.ctor -= IL_OracleGraphics_ctor;
         IL.OracleGraphics.InitiateSprites -= IL_OracleGraphics_InitiateSprites;
+        IL.Oracle.Update -= IL_Oracle_Update;
     }
     private static void On_Oracle_SetUpSwarmers(On.Oracle.orig_SetUpSwarmers orig, Oracle self) {
         if (self is OracleWrapper) return;
@@ -328,11 +386,11 @@ public class Hooks {
         orig(self, abstractPhysicalObject, room);
     }
 
-    private static void On_OracleGraphics_ApplyPalette(On.OracleGraphics.orig_ApplyPalette orig, OracleGraphics self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, RoomPalette palette) {
+    /*private static void On_OracleGraphics_ApplyPalette(On.OracleGraphics.orig_ApplyPalette orig, OracleGraphics self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, RoomPalette palette) {
         orig(self, sLeaser, rCam, palette);
         if (self.owner is not OracleWrapper wrapper || wrapper.ThirdEyeSprite == null) return;
         sLeaser.sprites[self.MoonThirdEyeSprite].color = Color.Lerp(wrapper.ThirdEyeColor, self.SkinColor(), 0.5f);
-    }
+    }*/
     // please excuse the copypasted shitcode from decompiled OracleGraphics
     private static void On_OracleGraphics_Update(On.OracleGraphics.orig_Update orig, OracleGraphics self) {
         orig(self);
@@ -377,11 +435,11 @@ public class Hooks {
     private static void On_OracleGraphics_InitiateSprites(OracleGraphics self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam) {
         if (self.owner is OracleWrapper wrapper) {
             for (int i = 0; i < 2; i++) sLeaser.sprites[self.EyeSprite(i)].color = wrapper.EyeColor;
-            if (wrapper.ThirdEyeSprite != null && false) {
+            /*if (wrapper.ThirdEyeSprite != null) {
                 sLeaser.sprites[self.MoonThirdEyeSprite] = new FSprite(wrapper.ThirdEyeSprite) {
                     color = wrapper.ThirdEyeColor
                 };
-            }
+            }*/
             sLeaser.sprites[self.fadeSprite].color = wrapper.LightColor;
             sLeaser.sprites[self.fadeSprite].alpha = wrapper.LightAlpha;
         }

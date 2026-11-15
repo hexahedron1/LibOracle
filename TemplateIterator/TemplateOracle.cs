@@ -1,13 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using LibOracle;
 using MoreSlugcats;
-using On.Watcher;
 using RWCustom;
 using UnityEngine;
-using Random = UnityEngine.Random;
 
 namespace TemplateIterator;
 
@@ -17,9 +14,9 @@ public class TemplateOracle : OracleWrapper {
             LightAlpha = 0f;
         }
         ID = new OracleID("TMIR", true);
-        ThirdEyeSprite = "Circle20";
+        /*ThirdEyeSprite = "Circle20";
         ThirdEyeColor = RobeColor;
-        ThirdEyeScale = 1f;
+        ThirdEyeScale = 1f;*/
         if (PData.Broken) SetUpSwarmers();
     }
     public sealed override void SetUpSwarmers() {
