@@ -1,18 +1,15 @@
 using System;
-using System.Linq;
-using Menu.Remix.MixedUI;
 using MoreSlugcats;
 using RWCustom;
 using UnityEngine;
 
 namespace LibOracle;
 // this was pretty unnecessary but i thought it'd look cool
-public class BlackScreenOfDeath : UpdatableAndDeletable, IDrawable {
+public class BlackScreenOfDeath : UpdatableAndDeletable {
     OracleWrapper Oracle;
-    private ProjectedImage image;
+    protected ProjectedImage Image;
     public BlackScreenOfDeath(Vector2 pos, OracleWrapper owner, Exception exc, bool myFault) {
         Tick = 0;
-        Exception = exc;
         Pos = pos;
         Oracle = owner;
         Plugin.Logger.LogDebug($"BSOD: {Oracle}");
@@ -26,12 +23,11 @@ public class BlackScreenOfDeath : UpdatableAndDeletable, IDrawable {
             GlyphLabels[2] = new GlyphLabel(Vector2.zero, GlyphLabel.RandomString(18, 67578, false));
             GlyphLabels[3] = new GlyphLabel(Vector2.zero, GlyphLabel.RandomString(17, 15313, false));
             GlyphLabels[4] = new GlyphLabel(Vector2.zero, GlyphLabel.RandomString(25, 43223, false));
-            image = Oracle.myScreen.AddImage(myFault ? "liboracle_bsod_myfault" : "liboracle_bsod");
+            Image = Oracle.myScreen.AddImage(myFault ? "liboracle_bsod_myfault" : "liboracle_bsod");
         }
     } 
     public Vector2 Pos { get; set; }
     public int Tick { get; set; }
-    public Exception Exception { get; set; }
     public GlyphLabel TitleLabel { get; set; }
     public int TitleBlink { get; set; }
     public GlyphLabel[] GlyphLabels = new GlyphLabel[5];
@@ -72,8 +68,8 @@ public class BlackScreenOfDeath : UpdatableAndDeletable, IDrawable {
         }
         if (!Oracle.PData.Broken) {
             TitleLabel.pos = Pos;
-            image.pos = Pos + new Vector2(250, -280);
-            image.alpha = Tick >= 250 ? 1f : 0f;
+            Image.pos = Pos + new Vector2(250, -280);
+            Image.alpha = Tick >= 250 ? 1f : 0f;
             if (Tick == 250) room.PlaySound(SoundID.SS_AI_Image);
             for (int i = 0; i < GlyphLabels.Length; i++) {
                 GlyphLabels[i].pos = Pos - new Vector2(0, 30 + 15 * i);
@@ -99,21 +95,5 @@ public class BlackScreenOfDeath : UpdatableAndDeletable, IDrawable {
             }
         }
         Tick++;
-    }
-
-    public void InitiateSprites(RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam) {
-        
-    }
-
-    public void DrawSprites(RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, float timeStacker, Vector2 camPos) {
-        /*foreach (var t in Labels) {
-            t?.Redraw(false, false);
-        }*/
-    }
-
-    public void ApplyPalette(RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, RoomPalette palette) {
-    }
-
-    public void AddToContainer(RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, FContainer newContatiner) {
     }
 }

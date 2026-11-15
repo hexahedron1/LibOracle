@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace LibOracle;
 
-public class Hooks {
+class Hooks {
     public static void Apply() {
         try {
             On.SaveState.LoadGame += On_SaveState_LoadGame;
@@ -49,8 +49,8 @@ public class Hooks {
                 orig(self, grasp, eu);
             };
             On.Player.SwallowObject += (orig, self, grasp) => {
-                orig(self, grasp);
                 self.room.IngameEvent(IngameEvent.PlayerSwallowObject, self.DangerPos, new Tuple<Player, PhysicalObject>(self, self.grasps[grasp].grabbed));
+                orig(self, grasp);
             };
             On.Player.Regurgitate += (orig, self) => {
                 orig(self);
@@ -66,6 +66,7 @@ public class Hooks {
             };
             On.Weapon.HitSomething += (orig, self, result, eu) => {
                 var ret = orig(self, result, eu);
+                Plugin.Logger.LogDebug($"{ret}, {result.obj.GetType().Name}");
                 if (ret && result.obj is Player player) self.room.IngameEvent(IngameEvent.PlayerHit, result.collisionPoint, new Tuple<Player, Weapon, Creature>(player, self, self.thrownBy));
                 return ret;
             };
@@ -80,12 +81,12 @@ public class Hooks {
             // TODO: IL hook arti jump
             IL.Player.ClassMechanicsArtificer += IL_Player_ClassMechanicsArtificer;
             On.Player.SpearOnBack.SpearToBack += (orig, self, spr) => {
-                orig(self, spr);
                 self.owner.room.IngameEvent(IngameEvent.SpearPutOnBack, spr.firstChunk.pos, new Tuple<Player, Spear>(self.owner, spr));
+                orig(self, spr);
             };
             On.Player.SpearOnBack.SpearToHand += (orig, self, eu) => {
-                orig(self, eu);
                 self.owner.room.IngameEvent(IngameEvent.SpearPutOnBack, self.spear.firstChunk.pos, new Tuple<Player, Spear>(self.owner, self.spear));
+                orig(self, eu);
             };
             On.Player.SpitUpCraftedObject += (orig, self) => {
                 orig(self);
@@ -190,7 +191,6 @@ public class Hooks {
             c.GotoPrev(MoveType.After, x => x.MatchCall(typeof(PhysicalObject).GetMethod(nameof(PhysicalObject.Update))));
             c.Emit(OpCodes.Ldarg_0);
             c.EmitDelegate((Oracle o) => {
-                Plugin.Logger.LogInfo($"Checking if oracle is wrapper ({o is OracleWrapper})");
                 return o is OracleWrapper;
             });
             c.Emit(OpCodes.Brtrue, label);
@@ -414,10 +414,10 @@ public class Hooks {
             if (wrapper.HoldKnees) {
                 GenericBodyPart hand = self.hands[i];
                 hand.vel += Vector2.ClampMagnitude(self.knees[i, 0] - self.hands[i].pos, 10f) / 3f;
-            } else if (wrapper.HandDirections[i] != null) {
+            }/* else if (wrapper.HandDirections[i] != null) {
                 GenericBodyPart hand = self.hands[i];
                 hand.vel += Custom.DirVec(hand.pos, wrapper.HandDirections[i].Value);
-            }
+            }*/
             Vector2 vector2_6;
             if (mysteriousVector.HasValue)
             {

@@ -93,8 +93,8 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public Color RobeFadeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
     public Color EyeColor { get; set; } = new(0.01f, 0.01f, 0.01f);
     public Color LightColor { get; set; } = new(1f, 1f, 1f);
-    public static string CollectionIcon { get; set; } = "GuidancePebbles";
-    public static Color CollectionColor { get; set; } = new(1f, 1f, 1f);
+    //public static string CollectionIcon { get; set; } = "GuidancePebbles";
+    //public static Color CollectionColor { get; set; } = new(1f, 1f, 1f);
     public float LightAlpha { get; set; } = 0.5f;
     // TODO: implement these
     //[CanBeNull] public string ThirdEyeSprite { get; set; } = null;
@@ -106,7 +106,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     public OracleState State { get; set; }
     public Vector2 LookPos { get; set; }
     public bool EyesOpen { get; set; } = true;
-    public readonly Vector2?[] HandDirections = new Vector2?[2];
+    //public readonly Vector2?[] HandDirections = new Vector2?[2];
     #endregion Properties
     public new virtual void SetUpSwarmers() { }
     public new virtual void SetUpMarbles() { }
@@ -119,10 +119,11 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     protected Vector2 lastPosHandle;
     protected Vector2 nextPosHandle;
     protected float pathProgression;
+    protected float investigateAngle;
     public float Angle { get; set; }
     private Vector2 baseIdeal;
     private Behavior behavior;
-    Conversation Conversation;
+    protected Conversation Conversation;
     public bool Conscious { get; set; } = true;
     public new bool Consious => Conscious;
     protected virtual void ConversationEvents(ConversationWrapper convo) { }
@@ -148,7 +149,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         }, firstChunk);
     }
     public void StartConversation(Conversation.ID id) {
-        Plugin.Logger.LogDebug("Starting convo: " + id.value);
+        //Plugin.Logger.LogDebug("Starting convo: " + id.value);
         Conversation?.Destroy();
         Conversation = new ConversationWrapper(this, id, DialogBox) {
             colorMode = ModManager.MSC
@@ -255,31 +256,45 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         }
     }
     protected virtual float BasePosScore(Vector2 tryPos) => Mathf.Abs(Vector2.Distance(nextPos, tryPos) - 200f) + (Player == null ? 0 : Custom.LerpMap(Vector2.Distance(Player.DangerPos, tryPos), 40f, 300f, 800f, 0.0f));
-    
+    public void MoveAroundTarget(Vector2 pos, float minDist, float maxDist, float changeChance = 0f) {
+        if (!(Custom.Dist(pos, nextPos) > maxDist || Custom.Dist(pos, nextPos) < minDist || room.aimap.getTerrainProximity(nextPos) < 2.0 || Random.value < changeChance)) return;
+        Angle = 180f;
+        Vector2 vector2 = pos + Custom.DegToVec(investigateAngle) * Random.Range(minDist, maxDist);
+        if (room.aimap.getTerrainProximity(vector2) >= 2.0) {
+            TargetPos = vector2;
+        }
+    }
     protected virtual Vector2 ClampVectorInRoom(Vector2 v) {
         Vector2 vector2 = v;
         vector2.x = Mathf.Clamp(vector2.x, arm.cornerPositions[0].x + 10f, arm.cornerPositions[1].x - 10f);
         vector2.y = Mathf.Clamp(vector2.y, arm.cornerPositions[2].y + 10f, arm.cornerPositions[1].y - 10f);
         return vector2;
     }
-    public static void RegisterOracle<TOracle>(string category) where TOracle : OracleWrapper {
+    public static void RegisterOracle<TOracle>(string category) 
+        where TOracle : OracleWrapper {
         Plugin.Logger.LogInfo($"Registering new oracle: {typeof(TOracle).Name} in {category}");
         Pom.Pom.RegisterManagedObject<TOracle, Data, Pom.Pom.ManagedRepresentation>(typeof(TOracle).Name, category);
     }
-    public static void RegisterOracle<TOracle, TData>(string category) where TOracle : OracleWrapper where TData : Data {
+    public static void RegisterOracle<TOracle, TData>(string category) 
+        where TOracle : OracleWrapper 
+        where TData : Data {
         Plugin.Logger.LogInfo($"Registering new oracle: {typeof(TOracle).Name} in {category}");
         Pom.Pom.RegisterManagedObject<TOracle, TData, Pom.Pom.ManagedRepresentation>(typeof(TOracle).Name, category);
     }
     #region Subclasses
+
     protected class ConversationWrapper : Conversation {
         public ConversationWrapper(IOwnAConversation owner, ID id, DialogBox box) : base(owner, id, box) {
-            oracle.ConversationEvents(this);
+            Oracle.ConversationEvents(this);
         }
-        protected OracleWrapper oracle => (OracleWrapper)interfaceOwner;
+        protected OracleWrapper Oracle => (OracleWrapper)interfaceOwner;
         public void AddTextEvent(string text, int initialWait = 0, int extraLinger = 0) => events.Add(new TextEvent(this, initialWait, text, extraLinger));
         public void AddSpecialEvent(string eventName, int initialWait = 0) => events.Add(new SpecialEvent(this, initialWait, eventName));
-        public void AddWaitEvent(int initialWait) => events.Add(new WaitEvent(this, initialWait));
-        public void LoadEventsFromFile(string fileName, bool oneRandomLine = false, int randomSeed = 0) => ModIntegrations.CrsIntegration.LoadEventsFromFile(this, fileName, oracle.SaveState.saveStateNumber, oneRandomLine, randomSeed);
+        public void AddWaitEvent(int wait) => events.Add(new WaitEvent(this, wait));
+        public void LoadEventsFromFile(string fileName, bool oneRandomLine = false, int randomSeed = 0) {
+            if (Plugin.CrsLoaded) ModIntegrations.CrsIntegration.LoadEventsFromFile(this, fileName, Oracle.SaveState.saveStateNumber, oneRandomLine, randomSeed);
+            else Plugin.Logger.LogWarning("Unable to load events from file: CRS must be enabled");
+        }
     }
     public class Data(PlacedObject obj) : Pom.Pom.ManagedData(obj, null) {
         [Pom.Pom.IntVector2Field("armArea", 28, 28, Pom.Pom.IntVector2Field.IntVectorReprType.rect)]
@@ -412,6 +427,7 @@ public class OracleState(OracleWrapper owner) {
     public ID Id {
         get => id;
         set {
+            if (id == value) return;
             id = value;
             SwitchTime = Owner.room.game.timeInRegionThisCycle;
             Progress = 0;

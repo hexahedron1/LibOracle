@@ -7,7 +7,7 @@ public class IngameEvent(string value, bool register) : ExtEnum<IngameEvent>(val
     #region Slugcat
     // Player
     public static readonly IngameEvent PlayerDied = new(nameof(PlayerDied), true);
-    public static readonly IngameEvent PlayerMeow = new(nameof(PlayerMeow), true); // Push to Meow compat
+    ///public static readonly IngameEvent PlayerMeow = new(nameof(PlayerMeow), true); // Push to Meow compat
     // Player, PhysicalObject
     public static readonly IngameEvent PlayerGrabObject = new(nameof(PlayerGrabObject), true);
     // Player, PhysicalObject
@@ -63,6 +63,7 @@ public class IngameEvent(string value, bool register) : ExtEnum<IngameEvent>(val
     #region Environment
     // Explosion
     public static readonly IngameEvent Explosion = new(nameof(Explosion), true);
+    // InGameNoise
     public static readonly IngameEvent Noise = new(nameof(Noise), true);
     public static readonly IngameEvent CycleEndSoon = new(nameof(CycleEndSoon), true);
     public static readonly IngameEvent CycleEnd = new(nameof(CycleEnd), true);
