@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using HUD;
 using JetBrains.Annotations;
@@ -16,7 +17,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     protected OracleWrapper(PlacedObject pobj, Room room) : base(new AbstractPhysicalObject(room.world, AbstractPhysicalObject.AbstractObjectType.Oracle, null, new WorldCoordinate(room.abstractRoom.index, (int)pobj.pos.x, (int)pobj.pos.y, -1), room.game.GetNewID()), room) {
         PObject = pobj;
         for (int i = 0; i < bodyChunks.Length; ++i) {
-            bodyChunks[i] = new BodyChunk(this, i, Center - new Vector2(0, 20), 6f, 0.5f);
+            bodyChunks[i] = new BodyChunk(this, i, Center - new Vector2(0, 20*i), 6f, 0.5f);
         }
         /*for (int index = 0; index < bodyChunkConnections.Length; ++index)
             bodyChunkConnections[index] = new BodyChunkConnection(bodyChunks[index], bodyChunks[index + 1], 9f, BodyChunkConnection.Type.Normal, 1f, 0.5f);
@@ -206,10 +207,16 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         }
         else baseIdeal = baseIdeal = PData.BrokenArmBasePos + PObject.pos;
     }
+    protected virtual void InitChamberObjects() {}
+    private bool initObjs;
     public override void Update(bool eu) {
         if (Player == null && room.game.AlivePlayers.Count > 0)
             Player = room.game.FirstAlivePlayer.realizedCreature as Player;
         if (Player != null && Player.room != room) Player = null;
+        if (!initObjs) {
+            InitChamberObjects();
+            initObjs = true;
+        }
         behavior.lookPoint = LookPos;
         base.Update(eu);
         if (bsod != null) {
@@ -263,6 +270,38 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         if (room.aimap.getTerrainProximity(vector2) >= 2.0) {
             TargetPos = vector2;
         }
+    }
+    public List<OraclePearl> Pearls { get; } = [];
+    public OraclePearl AddPearl(Vector2 pos, Color color, [CanBeNull] DataPearl.AbstractDataPearl.DataPearlType type = null, Color? highlightColor = null) {
+        type ??= DataPearl.AbstractDataPearl.DataPearlType.PebblesPearl;
+        OraclePearl pearl = new OraclePearl(
+            //new DataPearl.AbstractDataPearl(room.world, AbstractPhysicalObject.AbstractObjectType.PebblesPearl, null, room.GetWorldCoordinate(pos), room.game.GetNewID(), -1, -1, null, type),
+            new PebblesPearl.AbstractPebblesPearl(room.world, null, room.GetWorldCoordinate(pos), room.game.GetNewID(), -1, -1, null, 0, Pearls.Count),
+            room.world, color, highlightColor ?? color, type) {
+            AbstractPearl = {
+                dataPearlType = type
+            },
+            oracle = this,
+            hoverPos = pos
+        };
+        pearl.firstChunk.HardSetPosition(pos);
+        Pearls.Add(pearl);        
+        room.AddObject(pearl);
+        return pearl;
+    }
+    public OraclePearl AddPearl(Vector2 pos, Color color, PhysicalObject orbitObj, int circle, float distance, [CanBeNull] DataPearl.AbstractDataPearl.DataPearlType type = null, Color? highlightColor = null) {
+        OraclePearl pearl = AddPearl(pos, color, type, highlightColor);
+        pearl.hoverPos = null;
+        pearl.orbitObj = orbitObj;
+        pearl.orbitCircle = circle;
+        pearl.orbitDistance = distance;
+        return pearl;
+    }
+    public void Pulse(Vector2 pos) {
+        room.AddObject(new ShockWave(pos, 60f, 0.1f, 8));
+        room.AddObject(new Spark(pos, Custom.RNV(), Color.white, null, 16, 24));
+        room.AddObject(new Explosion.ExplosionLight(pos, 150f, 1f, 8, Color.white));
+        room.PlaySound(SoundID.SS_AI_Give_The_Mark_Boom, pos);
     }
     protected virtual Vector2 ClampVectorInRoom(Vector2 v) {
         Vector2 vector2 = v;
@@ -439,6 +478,16 @@ public class OracleState(OracleWrapper owner) {
     public class ID(string value, bool register) : ExtEnum<ID>(value, register) {
         public static readonly ID Idle = new(nameof(Idle), true);
         public static readonly ID Welcome = new(nameof(Welcome), true);
+        public static readonly ID FirstEncounterSpear = new(nameof(FirstEncounterSpear), true);
+        public static readonly ID FirstEncounterArti = new(nameof(FirstEncounterArti), true);
+        public static readonly ID FirstEncounterHunter = new(nameof(FirstEncounterHunter), true);
+        public static readonly ID FirstEncounterGourm = new(nameof(FirstEncounterGourm), true);
+        public static readonly ID FirstEncounterSurv = new(nameof(FirstEncounterSurv), true);
+        public static readonly ID FirstEncounterMonk = new(nameof(FirstEncounterMonk), true);
+        public static readonly ID FirstEncounterRiv = new(nameof(FirstEncounterRiv), true);
+        public static readonly ID FirstEncounterSaint = new(nameof(FirstEncounterSaint), true);
+        public static readonly ID InspectObject = new(nameof(InspectObject), true);
+        public static readonly ID InspectPearl = new(nameof(InspectPearl), true);
     }
     public class MovementBehavior(string value, bool register) : ExtEnum<MovementBehavior>(value, register) {
         public static readonly MovementBehavior Center = new(nameof(Center), true);

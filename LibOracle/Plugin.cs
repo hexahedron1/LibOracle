@@ -16,7 +16,7 @@ namespace LibOracle;
 sealed class Plugin : BaseUnityPlugin {
     public const string GUID = "hexahedron1.liboracle";
     public const string Name = "LibOracle";
-    public const string Version = "0.3.5";
+    public const string Version = "1.0.0";
     new internal static ManualLogSource Logger;
     private static bool IsInit;
     private static bool checkedCrs;
