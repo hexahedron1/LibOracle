@@ -2,6 +2,7 @@
 using BepInEx;
 using BepInEx.Logging;
 using System.Security.Permissions;
+using CoralBrain;
 #pragma warning disable CS0618
 [assembly: SecurityPermission(SecurityAction.RequestMinimum, SkipVerification = true)]
 #pragma warning restore CS0618
@@ -16,7 +17,7 @@ namespace LibOracle;
 sealed class Plugin : BaseUnityPlugin {
     public const string GUID = "hexahedron1.liboracle";
     public const string Name = "LibOracle";
-    public const string Version = "1.0.0";
+    public const string Version = "1.1.0";
     new internal static ManualLogSource Logger;
     private static bool IsInit;
     private static bool checkedCrs;

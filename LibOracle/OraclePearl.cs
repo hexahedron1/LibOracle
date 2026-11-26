@@ -11,9 +11,4 @@ public class OraclePearl
         HighlightColor = highlight;
         AbstractPearl.dataPearlType = type;
     }
-    public new void ApplyPalette(RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, RoomPalette palette) {
-        base.ApplyPalette(sLeaser, rCam, palette);
-        color = BaseColor;
-        highlightColor = HighlightColor;
-    }
 }

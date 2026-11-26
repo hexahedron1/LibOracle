@@ -30,6 +30,7 @@ class Hooks {
             On.OracleGraphics.UbilicalCord.SetStuckSegments += On_UbilicalCord_SetStuckSegments;
             On.OracleGraphics.Halo.Update += On_Halo_Update;
             On.Oracle.GlowerEaten += On_Oracle_GlowerEaten;
+            On.DataPearl.ApplyPalette += On_DataPearl_ApplyPalette;
             //On.OracleGraphics.DrawSprites += On_OracleGraphics_DrawSprites;
             #region IngameEvent
             On.Player.Die += (orig, self) => {
@@ -146,6 +147,12 @@ class Hooks {
             Plugin.Logger.LogError("Shit has hit the fan");
             Plugin.Logger.LogError(e);
         }
+    }
+    private static void On_DataPearl_ApplyPalette(On.DataPearl.orig_ApplyPalette orig, DataPearl self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, RoomPalette palette) {
+        orig(self, sLeaser, rCam, palette);
+        if (self is not OraclePearl p) return;
+        self.color = p.BaseColor;
+        self.highlightColor = p.HighlightColor;
     }
     /*private static void On_MiscProgressionData_FromString(On.PlayerProgression.MiscProgressionData.orig_FromString orig, PlayerProgression.MiscProgressionData self, string s) {
         orig(self, s);
@@ -276,7 +283,7 @@ class Hooks {
         }
     }
     public class PobjData {
-        public bool ascended = false;
+        public bool ascended;
     }
     public static readonly ConditionalWeakTable<PhysicalObject, PobjData> pobjCWT = new();
     public static bool TryGetData(PhysicalObject key, out PobjData data) {
@@ -348,12 +355,12 @@ class Hooks {
         On.SaveState.SaveToString -= On_SaveState_SaveToString;
         On.OracleGraphics.SkinColor -= On_OracleGraphics_SkinColor;
         On.OracleGraphics.Gown.Color -= On_Gown_Color;
-        //On.OracleGraphics.ApplyPalette -= On_OracleGraphics_ApplyPalette;
         On.OracleGraphics.Update -= On_OracleGraphics_Update;
-        //On.OracleGraphics.DrawSprites -= On_OracleGraphics_DrawSprites;
         On.Oracle.SetUpSwarmers -= On_Oracle_SetUpSwarmers;
         On.OracleGraphics.UbilicalCord.SetStuckSegments -= On_UbilicalCord_SetStuckSegments;
         On.OracleGraphics.Halo.Update -= On_Halo_Update;
+        On.Oracle.GlowerEaten -= On_Oracle_GlowerEaten;
+        On.DataPearl.ApplyPalette += On_DataPearl_ApplyPalette;
         IL.Oracle.OracleArm.Joint.Update -= IL_Joint_Update;
         IL.OracleGraphics.Gown.InitiateSprite -= IL_Gown_InitiateSprite;
         IL.OracleGraphics.ctor -= IL_OracleGraphics_ctor;
@@ -409,7 +416,7 @@ class Hooks {
                 : SharedPhysics.ExactTerrainRayTracePos(wrapper.room, wrapper.firstChunk.pos, wrapper.firstChunk.pos + new Vector2(i == 0 ? -24f : -14f, -40f));
             if (mysteriousVector.HasValue) {
                 GenericBodyPart foot = self.feet[i];
-                foot.vel = foot.vel + Vector2.ClampMagnitude(mysteriousVector.Value - self.feet[i].pos, 10f) / 2f;
+                foot.vel += Vector2.ClampMagnitude(mysteriousVector.Value - self.feet[i].pos, 10f) / 2f;
             }
             if (wrapper.HoldKnees) {
                 GenericBodyPart hand = self.hands[i];
@@ -498,7 +505,7 @@ class Hooks {
             }
         }
         string json = JsonConvert.SerializeObject(memoryData);
-        Plugin.Logger.LogInfo(json);
+        //Plugin.Logger.LogInfo(json);
         string stuff = $"ORACLEMEMORY<svB>{json}";
         string[] spli2 = Regex.Split(output, "<svA>");
         string existing = spli2.FirstOrDefault(x => x.StartsWith("ORACLEMEMORY"));
@@ -506,7 +513,7 @@ class Hooks {
             spli2[spli2.IndexOf(existing)] = stuff;
             output = string.Join("<svA>", spli2);
         } else output += $"{stuff}<svA>";
-        Plugin.Logger.LogInfo(output);
+        //Plugin.Logger.LogInfo(output);
         return output;
     }
 
@@ -532,7 +539,7 @@ class Hooks {
         if (jajajaja == null) return;
         Plugin.Logger.LogInfo($"Loading oracle memories for save file {self.currentTimelinePosition.value}...");
         string json = Regex.Split(jajajaja, "<svB>")[1];
-        Plugin.Logger.LogInfo(json);
+        //Plugin.Logger.LogInfo(json);
         memoryData = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
         List<string> notFound = [];
         foreach (var pair in memoryData) {
@@ -562,7 +569,7 @@ class Hooks {
                     continue;
                 }
                 field.SetValue(null, JsonConvert.DeserializeObject(pair.Value, field.FieldType));
-                Plugin.Logger.LogDebug(pair.Key);
+                //Plugin.Logger.LogDebug(pair.Key);
             } catch (Exception e) {
                 Plugin.Logger.LogError($"FAILED TO LOAD MEMORY FIELD: {pair.Key}");
                 Plugin.Logger.LogError(e);

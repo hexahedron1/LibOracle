@@ -38,7 +38,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         currentGetTo = firstChunk.pos;
         oracleBehavior = new Behavior(this);
         behavior = (Behavior)oracleBehavior;
-        if (PData.Broken) foreach (var t in room.updateList) {
+        if (!PData.Broken) foreach (var t in room.updateList) {
             if (t is not AntiGravity antiGravity) continue;
             antiGravity.active = false;
             break;
@@ -264,12 +264,23 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
     }
     protected virtual float BasePosScore(Vector2 tryPos) => Mathf.Abs(Vector2.Distance(nextPos, tryPos) - 200f) + (Player == null ? 0 : Custom.LerpMap(Vector2.Distance(Player.DangerPos, tryPos), 40f, 300f, 800f, 0.0f));
     public void MoveAroundTarget(Vector2 pos, float minDist, float maxDist, float changeChance = 0f) {
-        if (!(Custom.Dist(pos, nextPos) > maxDist || Custom.Dist(pos, nextPos) < minDist || room.aimap.getTerrainProximity(nextPos) < 2.0 || Random.value < changeChance)) return;
-        Angle = 180f;
-        Vector2 vector2 = pos + Custom.DegToVec(investigateAngle) * Random.Range(minDist, maxDist);
-        if (room.aimap.getTerrainProximity(vector2) >= 2.0) {
-            TargetPos = vector2;
+        LookPos = pos;
+        investigateAngle = 180f;
+        bool newPos = Custom.Dist(pos, nextPos) > maxDist || Custom.Dist(pos, nextPos) < minDist;
+        float investigateAngle2 = 0f;
+        if (room.aimap.getTerrainProximity(nextPos) < 2.0 || Random.value < changeChance || newPos) {
+            investigateAngle2 = Mathf.Lerp(-180f, 180f, Random.value);
+            newPos = true;
         }
+        
+        if (!newPos) return;
+        Vector2 vector2 = pos + Custom.DegToVec(investigateAngle2) * Random.Range(minDist, maxDist);
+        if (!(room.aimap.getTerrainProximity(vector2) >= 2.0)) return;
+        if (pathProgression > 0.9) {
+            if (!Custom.DistLess(nextPos, vector2, 30f))
+                TargetPos = vector2;
+        }
+        nextPos = vector2;
     }
     public List<OraclePearl> Pearls { get; } = [];
     public OraclePearl AddPearl(Vector2 pos, Color color, [CanBeNull] DataPearl.AbstractDataPearl.DataPearlType type = null, Color? highlightColor = null) {
@@ -277,7 +288,7 @@ public abstract class OracleWrapper : Oracle, Conversation.IOwnAConversation {
         OraclePearl pearl = new OraclePearl(
             //new DataPearl.AbstractDataPearl(room.world, AbstractPhysicalObject.AbstractObjectType.PebblesPearl, null, room.GetWorldCoordinate(pos), room.game.GetNewID(), -1, -1, null, type),
             new PebblesPearl.AbstractPebblesPearl(room.world, null, room.GetWorldCoordinate(pos), room.game.GetNewID(), -1, -1, null, 0, Pearls.Count),
-            room.world, color, highlightColor ?? color, type) {
+            room.world, color, highlightColor ?? new Color(1f, 1f, 1f), type) {
             AbstractPearl = {
                 dataPearlType = type
             },
@@ -486,11 +497,19 @@ public class OracleState(OracleWrapper owner) {
         public static readonly ID FirstEncounterMonk = new(nameof(FirstEncounterMonk), true);
         public static readonly ID FirstEncounterRiv = new(nameof(FirstEncounterRiv), true);
         public static readonly ID FirstEncounterSaint = new(nameof(FirstEncounterSaint), true);
+        public static readonly ID FirstEncounterInv = new(nameof(FirstEncounterInv), true);
+        public static readonly ID FirstEncounterMisc = new(nameof(FirstEncounterMisc), true);
         public static readonly ID InspectObject = new(nameof(InspectObject), true);
         public static readonly ID InspectPearl = new(nameof(InspectPearl), true);
     }
     public class MovementBehavior(string value, bool register) : ExtEnum<MovementBehavior>(value, register) {
         public static readonly MovementBehavior Center = new(nameof(Center), true);
+        public static readonly MovementBehavior LookAtPearls = new(nameof(LookAtPearls), true);
+        public static readonly MovementBehavior Meditate = new(nameof(Meditate), true);
+        public static readonly MovementBehavior KeepDistance = new(nameof(KeepDistance), true);
+        public static readonly MovementBehavior Investigate = new(nameof(Investigate), true);
+        public static readonly MovementBehavior InspectObject = new(nameof(InspectObject), true);
+        public static readonly MovementBehavior Talk = new(nameof(Talk), true);
     }
     public OracleWrapper Owner { get; set; } = owner;
     public int SwitchTime { get; set; }
